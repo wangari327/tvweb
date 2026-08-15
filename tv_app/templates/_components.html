@@ -8,10 +8,10 @@
         {% endif %}
         {% if item.rating or item.vote_average %}
         <span class="rating-badge" aria-label="Rating {{ '%.1f'|format(item.rating or item.vote_average) }} out of 10">
-            <span aria-hidden="true">★</span> {{ "%.1f"|format(item.rating or item.vote_average) }}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"/></svg>{{ "%.1f"|format(item.rating or item.vote_average) }}
         </span>
         {% endif %}
-        <span class="card-action">View details</span>
+        <span class="card-action" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m9 7 8 5-8 5V7Z"/></svg></span>
     </div>
     <div class="card-copy">
         <h3>{{ item.show_name }}</h3>

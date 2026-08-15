@@ -84,9 +84,13 @@ class PublicRouteTests(unittest.TestCase):
     def test_homepage_uses_clean_canonical_and_heading(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
         self.assert_contains(response, '<link rel="canonical" href="https://ibox-tv.com/">')
-        self.assert_contains(response, "<h1>")
-        self.assertNotIn("?search=&amp;page=1", response.get_data(as_text=True))
+        self.assert_contains(response, '<section class="feature-hero shell"')
+        self.assert_contains(response, "Find your next show")
+        self.assert_contains(response, "<h1>The Ark</h1>")
+        self.assertEqual(body.count('type="search"'), 1)
+        self.assertNotIn("?search=&amp;page=1", body)
 
     def test_category_pages_live_on_one_host(self):
         self.assertEqual(self.client.get("/anime").status_code, 200)

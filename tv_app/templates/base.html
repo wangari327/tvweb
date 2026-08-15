@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#080b14">
+    <meta name="theme-color" content="#06080d">
     <title>{% block title %}Discover what to watch{% endblock %} | iBOX TV</title>
     <meta name="description" content="{% block meta_description %}Discover TV shows, anime, and movies, then continue to the latest available download on iBOX TV.{% endblock %}">
 
@@ -19,7 +19,7 @@
     <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
     <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=2.0.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=2.1.0">
 
     <script src="https://www.termsfeed.com/public/cookie-consent/4.2.0/cookie-consent.js" charset="UTF-8"></script>
     <script>
@@ -52,19 +52,17 @@
     </script>
     {% block head_extra %}{% endblock %}
 </head>
-<body class="mode-{{ site_mode }}">
+<body class="mode-{{ site_mode }} {% block body_class %}{% endblock %}">
     <a class="skip-link" href="#main-content">Skip to content</a>
 
     <header class="site-header">
         <div class="shell header-inner">
             <a class="brand" href="{{ url_for('index') }}" aria-label="iBOX TV home">
-                <img src="{{ url_for('static', filename='logo.png') }}" width="42" height="42" alt="">
-                <span><strong>iBOX</strong>TV</span>
+                <span class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 40 40"><path class="brand-mark-frame" d="M12 3.5h16A8.5 8.5 0 0 1 36.5 12v16a8.5 8.5 0 0 1-8.5 8.5H12A8.5 8.5 0 0 1 3.5 28V12A8.5 8.5 0 0 1 12 3.5Z"/><path class="brand-mark-play" d="m16.3 13.5 11 6.5-11 6.5v-13Z"/><path class="brand-mark-signal" d="M9.5 11.7c2.1-2.2 4.5-3.3 7.3-3.3"/></svg>
+                </span>
+                <span class="brand-wordmark"><strong>iBOX</strong><em>TV</em></span>
             </a>
-
-            <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation">
-                <span></span><span></span><span></span><span class="sr-only">Menu</span>
-            </button>
 
             <nav class="site-nav" id="site-navigation" aria-label="Primary navigation">
                 <a href="{{ url_for('index') }}" {% if site_mode == 'tv' %}aria-current="page"{% endif %}>TV</a>
@@ -73,12 +71,24 @@
                 <a href="{{ category_browse_url(site_mode) }}">Browse</a>
             </nav>
 
-            <form class="header-search" action="{{ category_home_url(site_mode) }}" method="get" role="search">
-                <label class="sr-only" for="global-search">Search {{ site_mode }}</label>
-                <input id="global-search" type="search" name="{{ 'q' if site_mode == 'movies' else 'search' }}" value="{{ search_query|default(search_q|default('')) }}" placeholder="Search {{ 'movies' if site_mode == 'movies' else site_mode }}…" autocomplete="off">
-                <button type="submit" aria-label="Search">
+            <div class="header-actions">
+                <button class="search-toggle" type="button" aria-expanded="false" aria-controls="site-search-panel">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.4-4.4m2.4-5.1a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"/></svg>
+                    <span>Search</span><kbd>/</kbd>
                 </button>
+                <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation">
+                    <span></span><span></span><span></span><span class="sr-only">Menu</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="search-drawer" id="site-search-panel" aria-hidden="true" inert>
+            <form class="shell header-search" action="{{ category_home_url(site_mode) }}" method="get" role="search">
+                <label class="sr-only" for="global-search">Search {{ site_mode }}</label>
+                <svg class="search-field-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.4-4.4m2.4-5.1a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"/></svg>
+                <input id="global-search" type="search" name="{{ 'q' if site_mode == 'movies' else 'search' }}" value="{{ search_query|default(search_q|default('')) }}" placeholder="Search {{ 'movies' if site_mode == 'movies' else site_mode }}" autocomplete="off">
+                <button class="button button-primary" type="submit">Search</button>
+                <button class="search-close" type="button" aria-label="Close search">&times;</button>
             </form>
         </div>
     </header>
@@ -90,7 +100,7 @@
     <footer class="site-footer">
         <div class="shell footer-grid">
             <div>
-                <a class="brand brand-footer" href="{{ url_for('index') }}"><span><strong>iBOX</strong>TV</span></a>
+                <a class="brand brand-footer" href="{{ url_for('index') }}"><span class="brand-wordmark"><strong>iBOX</strong><em>TV</em></span></a>
                 <p>Find what is available, check the details, and continue securely to Telegram.</p>
             </div>
             <div class="footer-links" aria-label="Footer navigation">
@@ -100,10 +110,10 @@
                 <button type="button" id="open_preferences_center">Cookie preferences</button>
             </div>
         </div>
-        <div class="shell footer-bottom">© {{ now().year }} iBOX TV</div>
+        <div class="shell footer-bottom">&copy; {{ now().year }} iBOX TV</div>
     </footer>
 
-    <script src="{{ url_for('static', filename='script.js') }}?v=2.0.0" defer></script>
+    <script src="{{ url_for('static', filename='script.js') }}?v=2.1.0" defer></script>
     {% block scripts_extra %}{% endblock %}
 </body>
 </html>
