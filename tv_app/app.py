@@ -2,12 +2,15 @@
 import os
 import logging
 import hashlib
+import math
+import re
 from datetime import datetime
 from urllib.parse import urlencode, urlparse, parse_qs
+from xml.sax.saxutils import escape as xml_escape
 
 from flask import (
     Flask, render_template, redirect, url_for, request,
-    jsonify, send_from_directory, Response, make_response
+    jsonify, send_from_directory, Response, make_response, abort
 )
 from sqlalchemy import func
 from dotenv import load_dotenv
@@ -23,7 +26,26 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your_secret_key')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///tv_shows.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 60 * 60 * 24 * 30
 db.init_app(app)
+
+SITE_BASE_URL = os.environ.get('SITE_BASE_URL', 'https://ibox-tv.com').rstrip('/')
+SITE_HOST = urlparse(SITE_BASE_URL).netloc.lower()
+LEGACY_SITE_HOSTS = {
+    host.strip().lower()
+    for host in os.environ.get(
+        'LEGACY_SITE_HOSTS',
+        'anime.ibox-tv.com,movies.ibox-tv.com,www.ibox-tv.com',
+    ).split(',')
+    if host.strip()
+}
+SITEMAP_PAGE_SIZE = 25000
+
+CATEGORY_CONFIG = {
+    'tv': {'db': 'tv', 'label': 'TV shows', 'detail_endpoint': 'tv_detail', 'home_endpoint': 'index'},
+    'anime': {'db': 'anime', 'label': 'Anime', 'detail_endpoint': 'anime_detail', 'home_endpoint': 'anime_index'},
+    'movies': {'db': 'movie', 'label': 'Movies', 'detail_endpoint': 'movie_detail', 'home_endpoint': 'list_movies'},
+}
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -31,32 +53,133 @@ logger = logging.getLogger(__name__)
 # --- HELPERS ---
 
 def get_site_mode():
-    """
-    Determines if we are on 'tv', 'anime', or 'movies' based on subdomain.
-    """
-    host = request.host.lower()
-    if 'anime.' in host:
+    """Return the public category represented by the current canonical path."""
+    endpoint = request.endpoint or ''
+    path = request.path.lower()
+    if endpoint in {'anime_index', 'browse_anime', 'anime_detail'} or path.startswith('/anime'):
         return 'anime'
-    if 'movies.' in host:
+    if endpoint in {'list_movies', 'movie_detail'} or path.startswith('/movies'):
         return 'movies'
     return 'tv'
+
+
+def _primary_url_for(endpoint: str, **values) -> str:
+    """Build an absolute URL on the one public canonical host."""
+    relative = url_for(endpoint, _external=False, **values)
+    return f"{SITE_BASE_URL}{relative}"
+
+
+def _compact_params(values):
+    return {key: value for key, value in values.items() if value not in (None, '')}
+
+
+def _public_query(category: str):
+    """Records that are usable by a visitor, regardless of index eligibility."""
+    return TVShow.query.filter(
+        TVShow.category == category,
+        TVShow.show_name.isnot(None),
+        TVShow.show_name != '',
+        TVShow.slug.isnot(None),
+        TVShow.slug != '',
+        TVShow.download_link.isnot(None),
+        TVShow.download_link != '',
+    )
+
+
+def _indexable_query(category: str):
+    """Only submit complete, available records to search engines."""
+    return _public_query(category).filter(
+        TVShow.poster_path.isnot(None),
+        TVShow.poster_path != '',
+        TVShow.overview.isnot(None),
+        TVShow.overview != '',
+    )
+
+
+def _is_indexable(show: TVShow) -> bool:
+    return bool(
+        show.download_link
+        and show.poster_path
+        and show.overview
+        and show.show_name
+        and show.slug
+    )
+
+
+def _category_key_for_show(show: TVShow) -> str:
+    return 'movies' if show.category == 'movie' else show.category
+
+
+def _public_slug(show: TVShow) -> str:
+    title_slug = re.sub(r'[^a-z0-9]+', '-', (show.show_name or '').lower()).strip('-')
+    if show.tmdb_id and title_slug:
+        return f"{show.tmdb_id}-{title_slug}"
+    return show.slug
+
+
+def content_url(show: TVShow, external: bool = False) -> str:
+    category = _category_key_for_show(show)
+    endpoint = CATEGORY_CONFIG.get(category, CATEGORY_CONFIG['tv'])['detail_endpoint']
+    if external:
+        return _primary_url_for(endpoint, slug=_public_slug(show))
+    return url_for(endpoint, slug=_public_slug(show))
+
+
+def category_home_url(category: str, external: bool = False, **params) -> str:
+    config = CATEGORY_CONFIG.get(category, CATEGORY_CONFIG['tv'])
+    endpoint = config['home_endpoint']
+    if external:
+        return _primary_url_for(endpoint, **_compact_params(params))
+    return url_for(endpoint, **_compact_params(params))
+
+
+def category_browse_url(category: str, external: bool = False, **params) -> str:
+    endpoint = 'browse_anime' if category == 'anime' else 'browse_tv'
+    if category == 'movies':
+        endpoint = 'list_movies'
+    if external:
+        return _primary_url_for(endpoint, **_compact_params(params))
+    return url_for(endpoint, **_compact_params(params))
+
+
+@app.before_request
+def enforce_primary_host():
+    """Collapse historic category subdomains onto the canonical domain."""
+    if app.testing:
+        return None
+    host = request.host.split(':', 1)[0].lower()
+    if host in LEGACY_SITE_HOSTS:
+        query = f"?{request.query_string.decode('utf-8')}" if request.query_string else ''
+        return redirect(f"{SITE_BASE_URL}{request.path}{query}", code=301)
+    return None
+
+
+@app.after_request
+def add_public_response_headers(response):
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.setdefault('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+    return response
 
 @app.context_processor
 def inject_globals():
     """Injects 'now' and 'site_mode' into every template."""
     return {
         'now': datetime.utcnow,
-        'site_mode': get_site_mode()
+        'site_mode': get_site_mode(),
+        'content_url': content_url,
+        'category_home_url': category_home_url,
+        'category_browse_url': category_browse_url,
+        'site_base_url': SITE_BASE_URL,
     }
 
 def get_trending_shows(limit: int = 6, category: str = 'tv'):
     """Fetches top clicked shows FOR THE CURRENT CATEGORY only."""
     with app.app_context():
-        # Map 'movies' mode to 'movie' db category
         target_cat = 'movie' if category == 'movies' else category
-        return TVShow.query.filter_by(category=target_cat)\
-                        .order_by(TVShow.clicks.desc())\
-                        .limit(limit).all()
+        return _public_query(target_cat).order_by(
+            TVShow.clicks.desc(), TVShow.updated_at.desc()
+        ).limit(limit).all()
 
 def count_search_results(category: str, query_str: str) -> int:
     """
@@ -68,22 +191,25 @@ def count_search_results(category: str, query_str: str) -> int:
     try:
         # Note: We map 'movies' (site mode) to 'movie' (DB category) if needed,
         # but the caller should pass the correct DB category ('tv', 'anime', 'movie').
-        return TVShow.query.filter(
-            TVShow.category == category,
+        return _public_query(category).filter(
             TVShow.show_name.ilike(f'%{query_str}%')
         ).count()
     except Exception:
         return 0
 
 def _page_urls(base_endpoint: str, page_obj, extra_params=None):
-    extra_params = extra_params or {}
+    extra_params = _compact_params(extra_params or {})
+
     def _u(p):
-        params = {**extra_params, 'page': p}
-        return url_for(base_endpoint, _external=True, **params)
+        params = dict(extra_params)
+        if p > 1:
+            params['page'] = p
+        return _primary_url_for(base_endpoint, **params)
+
     prev_url = _u(page_obj.prev_num) if page_obj.has_prev else None
     next_url = _u(page_obj.next_num) if page_obj.has_next else None
     canonical_url = _u(page_obj.page)
-    meta_robots = "index,follow" if page_obj.page == 1 else "noindex,follow"
+    meta_robots = "index,follow" if page_obj.page == 1 and not extra_params else "noindex,follow"
     return canonical_url, prev_url, next_url, meta_robots
 
 @app.template_filter('hostonly')
@@ -95,106 +221,80 @@ def hostonly(url):
 
 # ----------------------------- Public pages -----------------------------
 
-@app.route('/')
-def index():
-    mode = get_site_mode() # 'tv', 'anime', or 'movies'
-    
-    # Map mode to DB category ('movies' mode -> 'movie' db category)
-    db_category = 'movie' if mode == 'movies' else mode
-    
+def _render_index(mode: str, endpoint: str):
+    db_category = CATEGORY_CONFIG[mode]['db']
     search_query = (request.args.get('search') or '').strip()
-    page = request.args.get('page', 1, type=int)
-    
-    # Adjust per_page based on content type
-    per_page = 24 if mode == 'movies' else 10
-    
-    # Base query filters by the current site mode
-    base_query = TVShow.query.filter(TVShow.category == db_category)
-
-    # Trending logic (scoped to current category)
+    page = max(request.args.get('page', 1, type=int), 1)
+    per_page = 20
+    base_query = _public_query(db_category)
     trending_shows = get_trending_shows(limit=6, category=mode)
-    
     message = None
-    shows = None
-    
-    # NEW: Dictionary to hold counts for ALL tabs
     result_counts = {'tv': 0, 'anime': 0, 'movies': 0}
 
     if search_query:
-        # 1. SEARCH CURRENT CATEGORY
         try:
-            # Try Postgres fuzzy search first
             shows = base_query.filter(
-                func.similarity(TVShow.show_name, search_query) > 0.1
-            ).order_by(
-                func.similarity(TVShow.show_name, search_query).desc()
-            ).paginate(page=page, per_page=per_page, error_out=False)
-
+                TVShow.show_name.ilike(f'%{search_query}%')
+            ).order_by(TVShow.updated_at.desc()).paginate(
+                page=page, per_page=per_page, error_out=False
+            )
             if not shows.items:
-                # Fallback to ILIKE
-                shows = base_query.filter(
-                    TVShow.show_name.ilike(f'%{search_query}%')
-                ).order_by(TVShow.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-
-                if not shows.items:
-                    # If still nothing, show latest but warn user
-                    shows = base_query.order_by(TVShow.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-                    message = f"No matches found in {mode.upper()}. Showing recent additions."
-                    page_title = f"No Results for '{search_query}'"
+                message = f"No {CATEGORY_CONFIG[mode]['label'].lower()} matched your search."
         except Exception as e:
             logger.error(f"Database error during search: {e}")
-            shows = base_query.order_by(TVShow.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-            message = "An error occurred. Showing recent additions."
-            page_title = "Search Error"
+            db.session.rollback()
+            shows = base_query.filter(TVShow.id == -1).paginate(
+                page=page, per_page=per_page, error_out=False
+            )
+            message = "Search is temporarily unavailable. Please try again."
 
-        if not message:
-            page_title = f"Search Results: {search_query}"
-
-        # 2. POPULATE COUNTS FOR ALL TABS (Active & Inactive)
-        # We use the DB categories: 'tv', 'anime', 'movie'
+        page_title = f"Search results for {search_query}"
         result_counts['tv'] = count_search_results('tv', search_query)
         result_counts['anime'] = count_search_results('anime', search_query)
         result_counts['movies'] = count_search_results('movie', search_query)
-
     else:
-        # Default Homepage View (No Search)
-        shows = base_query.order_by(TVShow.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-        
-        if mode == 'anime':
-             page_title = "Search & Download Latest Anime"
-        elif mode == 'movies':
-             page_title = "Search & Download Latest Movies"
-        else:
-             page_title = "Search & Download Latest TV Shows"
+        shows = base_query.order_by(TVShow.updated_at.desc()).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+        page_title = "Latest anime" if mode == 'anime' else "Latest TV shows"
 
-    canonical_url, prev_url, next_url, meta_robots = _page_urls('index', shows, extra_params={'search': search_query})
-    
+    canonical_url, prev_url, next_url, meta_robots = _page_urls(
+        endpoint, shows, extra_params={'search': search_query}
+    )
+
     return render_template('index.html',
         shows=shows, search_query=search_query, trending_shows=trending_shows,
         message=message, title=page_title, site_mode=mode,
-        result_counts=result_counts, # <-- NEW Variable passed to template
+        result_counts=result_counts,
         canonical_url=canonical_url, prev_url=prev_url, next_url=next_url, meta_robots=meta_robots
     )
 
-@app.route('/shows')
-def list_shows():
-    try:
-        mode = get_site_mode() # 'tv', 'anime', or 'movies'
-        
-        # If we are on the movies subdomain, redirect '/shows' to the root or movies list
-        if mode == 'movies':
-            return redirect(url_for('list_movies'))
 
-        page = request.args.get('page', 1, type=int)
+@app.route('/')
+def index():
+    return _render_index('tv', 'index')
+
+
+@app.route('/anime')
+def anime_index():
+    return _render_index('anime', 'anime_index')
+
+@app.route('/shows')
+def legacy_list_shows():
+    return redirect(url_for('browse_tv'), code=301)
+
+
+def _render_browse(category: str, endpoint: str):
+    try:
+        page = max(request.args.get('page', 1, type=int), 1)
         per_page = 30
         genre_filter = request.args.get('genre')
         rating_filter = request.args.get('rating', type=int)
         year_filter = request.args.get('year', type=int)
         sort_by = request.args.get('sort_by', 'name_asc')
 
-        # ISOLATION FIX: Query filtering by current category (TV or Anime)
-        query = TVShow.query.filter(TVShow.category == mode)
-        
+        query = _public_query(category)
+
         if genre_filter:
             query = query.join(TVShow.genres).filter(Genre.name == genre_filter)
         if year_filter:
@@ -221,25 +321,29 @@ def list_shows():
 
         shows_paginated = query.paginate(page=page, per_page=per_page, error_out=False)
 
-        all_genres = Genre.query.order_by(Genre.name).all()
+        all_genres = Genre.query.join(Genre.tv_shows).filter(
+            TVShow.category == category
+        ).distinct().order_by(Genre.name).all()
         current_year = datetime.utcnow().year
-        min_year_result = db.session.query(func.min(TVShow.year)).filter(TVShow.year.isnot(None)).scalar()
+        min_year_result = db.session.query(func.min(TVShow.year)).filter(
+            TVShow.category == category, TVShow.year.isnot(None)
+        ).scalar()
         min_year = min_year_result if min_year_result is not None else current_year - 20
         years = list(range(current_year, min_year - 1, -1))
         possible_ratings = list(range(10, -1, -1))
-        
-        page_title = "Available Anime" if mode == 'anime' else "Available TV Shows"
 
-        canonical_url, prev_url, next_url, meta_robots = _page_urls('list_shows', shows_paginated, extra_params={
+        canonical_url, prev_url, next_url, meta_robots = _page_urls(endpoint, shows_paginated, extra_params={
             'genre': genre_filter or '',
             'rating': rating_filter if rating_filter is not None else '',
             'year': year_filter if year_filter is not None else '',
-            'sort_by': sort_by
+            'sort_by': sort_by if sort_by != 'name_asc' else '',
         })
         return render_template('shows.html',
             shows=shows_paginated, genres=all_genres, ratings=possible_ratings, years=years,
             selected_genre=genre_filter, selected_rating=rating_filter, selected_year=year_filter,
-            current_sort_by=sort_by, title=page_title,
+            current_sort_by=sort_by,
+            title="Browse anime" if category == 'anime' else "Browse TV shows",
+            site_mode=category, browse_endpoint=endpoint,
             canonical_url=canonical_url, prev_url=prev_url, next_url=next_url, meta_robots=meta_robots
         )
     except Exception as e:
@@ -248,43 +352,47 @@ def list_shows():
         return render_template('500.html', title="Server Error",
                                meta_description="An error occurred viewing shows list."), 500
 
+
+@app.route('/browse/tv')
+def browse_tv():
+    return _render_browse('tv', 'browse_tv')
+
+
+@app.route('/browse/anime')
+def browse_anime():
+    return _render_browse('anime', 'browse_anime')
+
 @app.route('/movies')
 def list_movies():
     try:
-        # Note: If we are on movies.ibox-tv.com, this route acts as a specific filterable list
-        
-        page = request.args.get('page', 1, type=int)
-        per_page = 24  # 4x6 Grid
+        page = max(request.args.get('page', 1, type=int), 1)
+        per_page = 30
         search_q = (request.args.get('q') or '').strip()
         sort_by = request.args.get('sort_by', 'date_desc')
         year_filter = request.args.get('year', type=int)
         rating_filter = request.args.get('rating', type=int)
 
-        # 1. Base Query: Only Movies
-        query = TVShow.query.filter(TVShow.category == 'movie')
+        query = _public_query('movie')
 
-        # 2. Search Logic
         if search_q:
-            try:
-                query = query.filter(func.similarity(TVShow.show_name, search_q) > 0.1)
-                query = query.order_by(func.similarity(TVShow.show_name, search_q).desc())
-            except Exception:
-                query = query.filter(TVShow.show_name.ilike(f'%{search_q}%'))
+            query = query.filter(TVShow.show_name.ilike(f'%{search_q}%'))
 
-        # 3. Filters
         if year_filter:
             query = query.filter(TVShow.year == year_filter)
         if rating_filter is not None:
              query = query.filter(TVShow.rating >= float(rating_filter))
 
-        # 4. Sorting
         if not search_q:
             if sort_by == 'name_asc':
                 query = query.order_by(TVShow.show_name.asc())
             elif sort_by == 'rating_desc':
                 query = query.order_by(TVShow.rating.desc().nullslast())
-            else: # date_desc
+            elif sort_by == 'date_asc':
+                query = query.order_by(TVShow.updated_at.asc())
+            else:
                 query = query.order_by(TVShow.created_at.desc())
+        else:
+            query = query.order_by(TVShow.updated_at.desc())
 
         movies = query.paginate(page=page, per_page=per_page, error_out=False)
 
@@ -292,7 +400,10 @@ def list_movies():
         years = list(range(current_year, 1970, -1))
         
         canonical_url, prev_url, next_url, meta_robots = _page_urls('list_movies', movies, extra_params={
-            'q': search_q, 'sort_by': sort_by, 'year': year_filter, 'rating': rating_filter
+            'q': search_q,
+            'sort_by': sort_by if sort_by != 'date_desc' else '',
+            'year': year_filter,
+            'rating': rating_filter,
         })
 
         return render_template('movies.html',
@@ -305,43 +416,79 @@ def list_movies():
         logger.error(f"Error in list_movies: {e}")
         return render_template('500.html'), 500
 
-@app.route('/show/<slug>')
-def show_details(slug):
+def _render_show_details(slug: str, expected_category: str):
     try:
-        show = TVShow.query.filter_by(slug=slug).first_or_404()
-        show.clicks = (show.clicks or 0) + 1
-        db.session.commit()
+        show = None
+        id_match = re.match(r'^(\d+)-', slug)
+        if id_match:
+            show = TVShow.query.filter_by(
+                tmdb_id=int(id_match.group(1)), category=expected_category
+            ).first()
+        if show is None:
+            show = TVShow.query.filter_by(slug=slug).first_or_404()
 
-        # Handle Movie vs TV Title Format
+        if show.category != expected_category or slug != _public_slug(show):
+            return redirect(content_url(show), code=301)
+
         title_parts = [show.show_name]
-        
         if show.category == 'movie':
             if show.year:
                 title_parts.append(f"({show.year})")
-            title_parts.append("Movie Download")
+            title_parts.append("Movie details")
         else:
             if show.episode_title:
                 title_parts.append(show.episode_title)
-            title_parts.append("Details & Download")
-            
+            title_parts.append("Episodes and download")
+
         page_title = " - ".join(title_parts)
 
         if show.overview:
-            meta_desc_content = show.overview[:155] + "..." if len(show.overview) > 155 else show.overview
-            meta_desc = f"{meta_desc_content} Find details and download link on iBOX TV."
+            meta_desc = show.overview[:157].rstrip()
+            if len(show.overview) > 157:
+                meta_desc += "…"
         else:
-            meta_desc = f"View details and download {show.show_name}{' - ' + show.episode_title if show.episode_title else ''} on iBOX TV."
+            meta_desc = f"View availability, details, and the latest update for {show.show_name} on iBOX TV."
         meta_desc = meta_desc[:160]
+
+        related_shows = _public_query(show.category).filter(
+            TVShow.id != show.id
+        ).order_by(TVShow.updated_at.desc()).limit(6).all()
 
         return render_template('show_details.html',
             show=show, title=page_title, meta_description=meta_desc,
-            canonical_url=request.url, meta_robots="index,follow"
+            canonical_url=content_url(show, external=True),
+            meta_robots="index,follow" if _is_indexable(show) else "noindex,follow",
+            related_shows=related_shows,
         )
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in show_details slug={slug}: {e}")
+        if isinstance(e, NotFound):
+            raise
+        logger.error(f"Error in show details slug={slug}: {e}")
         return render_template('500.html', title="Server Error",
-                               meta_description="An error occurred viewing show details."), 500
+                               meta_description="An error occurred viewing show details.",
+                               meta_robots="noindex,nofollow"), 500
+
+
+@app.route('/tv/<slug>')
+def tv_detail(slug):
+    return _render_show_details(slug, 'tv')
+
+
+@app.route('/anime/<slug>')
+def anime_detail(slug):
+    return _render_show_details(slug, 'anime')
+
+
+@app.route('/movies/<slug>')
+def movie_detail(slug):
+    return _render_show_details(slug, 'movie')
+
+
+@app.route('/show/<slug>')
+def show_details(slug):
+    show = TVShow.query.filter_by(slug=slug).first_or_404()
+    return redirect(content_url(show), code=301)
 
 # --- PART 1 END ---
 # ==========================================
@@ -375,6 +522,8 @@ def redirect_to_download(show_id):
         show = TVShow.query.get_or_404(show_id)
         # If we have a direct link
         if show.download_link:
+            show.clicks = (show.clicks or 0) + 1
+            db.session.commit()
             link = show.download_link
             
             # 🚀 Automatic fix for Telegram Bot Deep Links (Slugify + Smart Truncate)
@@ -422,7 +571,7 @@ def redirect_to_download(show_id):
             return redirect(link)
         
         # Fallback: If no link, go back to details
-        return redirect(url_for('show_details', slug=show.slug))
+        return redirect(content_url(show))
     except Exception as e:
         logger.error(f"Error redirecting to download {show_id}: {e}")
         return redirect(url_for('index'))
@@ -436,27 +585,118 @@ def ads_txt_redirect():
 def robots_txt():
     return send_from_directory(app.static_folder, 'robots.txt', mimetype='text/plain')
 
+
+@app.route('/privacy-policy')
+def privacy_policy():
+    return render_template(
+        'privacy_policy.html',
+        title='Privacy policy',
+        canonical_url=_primary_url_for('privacy_policy'),
+        meta_robots='index,follow',
+    )
+
+
+@app.route('/about')
+def about():
+    return render_template(
+        'about.html',
+        title='About iBOX TV',
+        canonical_url=_primary_url_for('about'),
+        meta_robots='index,follow',
+    )
+
+
+def _xml_response(xml: str, status: int = 200) -> Response:
+    response = Response(xml, status=status, mimetype='application/xml')
+    response.headers['Cache-Control'] = 'public, max-age=3600, s-maxage=3600'
+    return response
+
+
 @app.route('/sitemap.xml')
 def sitemap_xml():
     try:
-        items = TVShow.query.order_by(
-            (TVShow.updated_at.desc() if hasattr(TVShow, 'updated_at') else TVShow.created_at.desc())
-        ).limit(50000).all()
-        urlset = []
-        base = url_for('index', _external=True)
-        urlset.append(f"<url><loc>{base}</loc><changefreq>hourly</changefreq></url>")
-        for s in items:
-            loc = url_for('show_details', slug=s.slug, _external=True)
-            lm = getattr(s, 'updated_at', None) or s.created_at or datetime.utcnow()
-            lastmod = lm.date().isoformat()
-            urlset.append(f"<url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>weekly</changefreq></url>")
-        xml = "<?xml version='1.0' encoding='UTF-8'?>\n" \
-              "<urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>\n" + \
-              "\n".join(urlset) + "\n</urlset>"
-        return Response(xml, mimetype="application/xml")
+        sitemap_urls = [_primary_url_for('core_sitemap')]
+        for category in CATEGORY_CONFIG:
+            db_category = CATEGORY_CONFIG[category]['db']
+            total = _indexable_query(db_category).count()
+            for page_number in range(1, math.ceil(total / SITEMAP_PAGE_SIZE) + 1):
+                sitemap_urls.append(_primary_url_for(
+                    'category_sitemap', category=category, page=page_number
+                ))
+
+        entries = "\n".join(
+            f"  <sitemap><loc>{xml_escape(url)}</loc></sitemap>" for url in sitemap_urls
+        )
+        return _xml_response(
+            "<?xml version='1.0' encoding='UTF-8'?>\n"
+            "<sitemapindex xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>\n"
+            f"{entries}\n</sitemapindex>"
+        )
     except Exception as e:
         logger.error(f"sitemap error: {e}")
-        return Response("<?xml version='1.0' encoding='UTF-8'?><urlset/>", mimetype="application/xml")
+        return _xml_response(
+            "<?xml version='1.0' encoding='UTF-8'?><sitemapindex/>",
+            status=503,
+        )
+
+
+@app.route('/sitemaps/core.xml')
+def core_sitemap():
+    urls = [
+        (_primary_url_for('index'), 'daily'),
+        (_primary_url_for('anime_index'), 'daily'),
+        (_primary_url_for('list_movies'), 'daily'),
+        (_primary_url_for('browse_tv'), 'weekly'),
+        (_primary_url_for('browse_anime'), 'weekly'),
+        (_primary_url_for('about'), 'monthly'),
+        (_primary_url_for('privacy_policy'), 'yearly'),
+    ]
+    entries = "\n".join(
+        f"  <url><loc>{xml_escape(url)}</loc><changefreq>{frequency}</changefreq></url>"
+        for url, frequency in urls
+    )
+    return _xml_response(
+        "<?xml version='1.0' encoding='UTF-8'?>\n"
+        "<urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>\n"
+        f"{entries}\n</urlset>"
+    )
+
+
+@app.route('/sitemaps/<category>-<int:page>.xml')
+def category_sitemap(category, page):
+    config = CATEGORY_CONFIG.get(category)
+    if not config or page < 1:
+        abort(404)
+
+    query = _indexable_query(config['db'])
+    total = query.count()
+    total_pages = math.ceil(total / SITEMAP_PAGE_SIZE)
+    if page > total_pages or total == 0:
+        abort(404)
+
+    rows = query.with_entities(
+        TVShow.tmdb_id, TVShow.show_name, TVShow.slug, TVShow.updated_at, TVShow.created_at
+    ).order_by(TVShow.updated_at.desc()).offset(
+        (page - 1) * SITEMAP_PAGE_SIZE
+    ).limit(SITEMAP_PAGE_SIZE).all()
+
+    endpoint = config['detail_endpoint']
+    entries = []
+    for tmdb_id, show_name, stored_slug, updated_at, created_at in rows:
+        title_slug = re.sub(r'[^a-z0-9]+', '-', (show_name or '').lower()).strip('-')
+        public_slug = f"{tmdb_id}-{title_slug}" if tmdb_id and title_slug else stored_slug
+        loc = _primary_url_for(endpoint, slug=public_slug)
+        lastmod = (updated_at or created_at or datetime.utcnow()).date().isoformat()
+        entries.append(
+            f"  <url><loc>{xml_escape(loc)}</loc><lastmod>{lastmod}</lastmod></url>"
+        )
+
+    entries_xml = "\n".join(entries)
+    return _xml_response(
+        "<?xml version='1.0' encoding='UTF-8'?>\n"
+        "<urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>\n"
+        f"{entries_xml}\n</urlset>"
+    )
 
 # ----------------------------- Nuke panel (auth + dupes) -----------------------------
 def _redis():
@@ -734,7 +974,8 @@ def healthz():
 @app.errorhandler(404)
 def page_not_found(e):
     return render_template('404.html', title="Page Not Found",
-                           meta_description="The page you were looking for could not be found."), 404
+                           meta_description="The page you were looking for could not be found.",
+                           meta_robots="noindex,follow"), 404
 
 @app.errorhandler(500)
 def internal_server_error(e):
@@ -743,6 +984,7 @@ def internal_server_error(e):
     except Exception as rollback_error:
         logger.error(f"Error during rollback in 500 handler: {rollback_error}")
     return render_template('500.html', title="Internal Server Error",
-                           meta_description="We encountered an internal error. Please try again later."), 500
+                           meta_description="We encountered an internal error. Please try again later.",
+                           meta_robots="noindex,nofollow"), 500
 
 # --- PART 2 END ---

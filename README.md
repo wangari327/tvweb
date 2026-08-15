@@ -8,17 +8,19 @@ This guide explains how to deploy **iBOX TV**, a production-grade streaming plat
 
 ## 🏗️ 1. How It Works (Architecture Overview)
 
-### 1.1 Domain-Based Isolation
+### 1.1 Canonical URL Architecture
 
-The platform uses **domain isolation**. The same backend runs everywhere, but the **active domain automatically scopes database queries**.
+The public catalogue now uses one canonical domain. Historic subdomains permanently redirect to category paths on that domain.
 
-| Domain | Content Served | Database Filter |
+| Canonical path | Content served | Database filter |
 |------|---------------|----------------|
-| **ibox-tv.com** | TV Shows | `category = 'tv'` |
-| **anime.ibox-tv.com** | Anime | `category = 'anime'` |
-| **movies.ibox-tv.com** | Movies | `category = 'movie'` |
+| **ibox-tv.com/** and **/browse/tv** | TV shows | `category = 'tv'` |
+| **ibox-tv.com/anime** and **/browse/anime** | Anime | `category = 'anime'` |
+| **ibox-tv.com/movies** | Movies | `category = 'movie'` |
 
-No separate deployments. No duplicated databases.
+Detail URLs use stable TMDB-ID and title paths, such as `/tv/123-the-ark`. Legacy `/show/<slug>` URLs and wrong-category paths return permanent redirects to the canonical detail URL.
+
+The root `/sitemap.xml` is a sitemap index. It links to category-specific sitemap files capped at 25,000 complete, available records each. Search and filter URLs remain crawlable but use `noindex,follow`; they must not be blocked in `robots.txt`.
 
 ### 1.2 Backend Components
 
@@ -88,6 +90,9 @@ FLASK_ENV=production
 
 # Primary canonical domain (SEO + absolute URLs)
 SITE_BASE_URL=https://ibox-tv.com
+
+# Historic hosts that should permanently redirect to SITE_BASE_URL
+LEGACY_SITE_HOSTS=anime.ibox-tv.com,movies.ibox-tv.com,www.ibox-tv.com
 
 # Admin panel master password
 ADMIN_TOKEN=YourSuperSecretPassword

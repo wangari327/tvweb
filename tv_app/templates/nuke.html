@@ -108,7 +108,7 @@
                   <img src="{{ s.poster_path or '' }}" alt="" style="width:70px;height:100px;object-fit:cover;border-radius:.25rem;">
                   <div style="flex:1;">
                     <div style="font-weight:600;">
-                      <a href="{{ url_for('show_details', slug=s.slug) }}" target="_blank">{{ s.show_name }}</a>
+                      <a href="{{ content_url(s) }}" target="_blank">{{ s.show_name }}</a>
                     </div>
                     <div style="opacity:.8;">{{ s.episode_title or '-' }}</div>
                     <div style="opacity:.6;font-size:.9em;">{{ s.created_at }}</div>
@@ -131,7 +131,7 @@
         <tr>
           <td style="width:80px;"><img src="{{ s.poster_path or '' }}" alt="" style="width:60px;height:85px;object-fit:cover;border-radius:.25rem;"></td>
           <td>{{ s.id }}</td>
-          <td><a href="{{ url_for('show_details', slug=s.slug) }}" target="_blank">{{ s.show_name }}</a></td>
+          <td><a href="{{ content_url(s) }}" target="_blank">{{ s.show_name }}</a></td>
           <td>{{ s.episode_title or '-' }}</td>
           <td>{{ (s.created_at or s.updated_at)|default('', true) }}</td>
           <td style="max-width:220px;word-break:break-all;">{% if s.download_link %}{{ s.download_link | hostonly }}{% else %}—{% endif %}</td>

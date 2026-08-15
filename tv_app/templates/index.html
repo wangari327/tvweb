@@ -1,236 +1,99 @@
 {% extends "base.html" %}
+{% from "_components.html" import poster_card with context %}
 
 {% block title %}{{ title }}{% endblock %}
-{% block meta_description %}Your ultimate source for searching and downloading the latest {{ site_mode|upper }} shows. Explore trending content and find download links easily on iBOX TV.{% endblock %}
+{% block meta_description %}{% if site_mode == 'anime' %}Discover newly available anime, explore popular series, and continue to the latest episodes on iBOX TV.{% else %}Discover newly available TV shows, explore popular series, and continue to the latest episodes on iBOX TV.{% endif %}{% endblock %}
+{% block social_meta %}
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ title }} | iBOX TV">
+<meta property="og:description" content="Discover the latest available {{ 'anime' if site_mode == 'anime' else 'TV shows' }} on iBOX TV.">
+<meta property="og:url" content="{{ canonical_url }}">
+<meta name="twitter:card" content="summary">
+{% endblock %}
 
 {% block content %}
-<div class="container-fluid">
-  <div class="row">
-    {# --- Left Sidebar (Ad) --- #}
-    <div class="col-lg-2 d-none d-lg-block text-center">
-      <div style="position: sticky; top: 20px;">
-        <div id="ezoic-pub-ad-placeholder-107"></div>
-      </div>
+<section class="hero shell">
+    <div class="hero-copy">
+        <span class="eyebrow">Updated from Telegram</span>
+        <h1>{% if site_mode == 'anime' %}Your next anime is already here.{% else %}Find the show. Get the latest update.{% endif %}</h1>
+        <p>Search a cleaner, faster catalogue of currently available titles. Check the details before continuing to Telegram.</p>
+        <form class="hero-search" action="{{ category_home_url(site_mode) }}" method="get" role="search">
+            <label class="sr-only" for="hero-search">Search {{ site_mode }}</label>
+            <input id="hero-search" type="search" name="search" value="{{ search_query }}" placeholder="Try {{ 'One Piece' if site_mode == 'anime' else 'The Last of Us' }}…" {% if search_query %}autofocus{% endif %}>
+            <button class="button button-primary" type="submit">Search</button>
+        </form>
+        <div class="hero-links">
+            <a href="{{ category_browse_url(site_mode) }}">Explore the full catalogue <span aria-hidden="true">→</span></a>
+            <a href="https://t.me/i_boxtv" rel="noopener nofollow" target="_blank">Follow updates on Telegram</a>
+        </div>
     </div>
-
-    {# --- Main Content --- #}
-    <div class="col-12 col-lg-8">
-      
-      {% if search_query %}
-        
-        {# --- NEW: 3-Way Search Tabs with Counts --- #}
-        <div class="search-tabs">
-            {# 1. TV Tab #}
-            <a href="https://ibox-tv.com/?search={{ search_query }}" class="search-tab {% if site_mode == 'tv' %}active{% endif %}">
-                <i class="fas fa-home"></i> TV
-                {% if result_counts.tv > 0 %}
-                    <span class="count-badge" style="background:{% if site_mode == 'tv' %}rgba(255,255,255,0.3){% else %}#444{% endif %}; color:#fff;">
-                        {{ result_counts.tv }}
-                    </span>
-                {% endif %}
-            </a>
-
-            {# 2. Movies Tab #}
-            <a href="https://movies.ibox-tv.com/?search={{ search_query }}" class="search-tab {% if site_mode == 'movies' %}active{% endif %}">
-                <i class="fas fa-film"></i> Movies
-                {% if result_counts.movies > 0 %}
-                    <span class="count-badge" style="background:{% if site_mode == 'movies' %}rgba(255,255,255,0.3){% else %}#444{% endif %}; color:#fff;">
-                        {{ result_counts.movies }}
-                    </span>
-                {% endif %}
-            </a>
-
-            {# 3. Anime Tab #}
-            <a href="https://anime.ibox-tv.com/?search={{ search_query }}" class="search-tab {% if site_mode == 'anime' %}active{% endif %}">
-                <i class="fas fa-torii-gate"></i> Anime
-                {% if result_counts.anime > 0 %}
-                    <span class="count-badge" style="background:{% if site_mode == 'anime' %}rgba(255,255,255,0.3){% else %}#444{% endif %}; color:#fff;">
-                        {{ result_counts.anime }}
-                    </span>
-                {% endif %}
-            </a>
-        </div>
-
-        {# --- SMART HINT SYSTEM --- #}
-        {% if not shows.items %}
-            <div class="alert alert-warning text-center" role="alert" style="background:#222; border:1px solid #444; color:#ddd; padding: 20px;">
-                <h4 style="color:#e50914; margin-bottom: 10px;">No matches in {{ site_mode|upper }}</h4>
-                
-                {% if result_counts.tv > 0 or result_counts.movies > 0 or result_counts.anime > 0 %}
-                    <p>But we found results in other sections:</p>
-                    <div style="display:flex; justify-content:center; gap:10px; flex-wrap:wrap; margin-top:10px;">
-                        {% if result_counts.tv > 0 and site_mode != 'tv' %}
-                            <a href="https://ibox-tv.com/?search={{ search_query }}" class="download-button" style="margin:0; font-size:0.9em;">
-                                <i class="fas fa-arrow-right"></i> See {{ result_counts.tv }} TV Shows
-                            </a>
-                        {% endif %}
-                        {% if result_counts.movies > 0 and site_mode != 'movies' %}
-                            <a href="https://movies.ibox-tv.com/?search={{ search_query }}" class="download-button" style="margin:0; font-size:0.9em; background-color:#e50914;">
-                                <i class="fas fa-arrow-right"></i> See {{ result_counts.movies }} Movies
-                            </a>
-                        {% endif %}
-                        {% if result_counts.anime > 0 and site_mode != 'anime' %}
-                            <a href="https://anime.ibox-tv.com/?search={{ search_query }}" class="download-button" style="margin:0; font-size:0.9em; background-color:#ff7675;">
-                                <i class="fas fa-arrow-right"></i> See {{ result_counts.anime }} Anime
-                            </a>
-                        {% endif %}
-                    </div>
-                {% else %}
-                    <p>We couldn't find anything matching "<strong>{{ search_query }}</strong>". Showing recent additions instead.</p>
-                {% endif %}
-            </div>
-            <h2 style="font-size:1.2em; color:#aaa; margin-top:30px; text-align:center;">Recent {{ site_mode|capitalize }} Additions</h2>
-        {% else %}
-            <h2 style="text-align:center; font-size:1.4em; margin-bottom:20px;">
-                Results for "<span style="color:#e50914;">{{ search_query }}</span>"
-            </h2>
-        {% endif %}
-
-        <div class="tv-shows">
-          {% if shows.items %}
-            {% for show in shows.items %}
-              <div class="show-card">
-                <a href="{{ url_for('show_details', slug=show.slug) }}">
-                  {% if show.poster_path %}
-                    <img src="{{ show.poster_path }}" alt="{{ show.show_name }}" loading="lazy">
-                  {% else %}
-                    <div class="placeholder-image">No Poster</div>
-                  {% endif %}
-                  
-                  <h3>{{ show.show_name }}</h3>
-                  
-                  {# --- Movie vs TV Display Logic --- #}
-                  {% if site_mode == 'movies' %}
-                    <p class="episode-title" style="color:#aaa; font-weight:normal;">
-                        {{ show.year if show.year else '' }}
-                        {% if show.rating %}
-                             • <i class="fas fa-star" style="color:gold; font-size:0.9em;"></i> {{ show.rating }}
-                        {% endif %}
-                    </p>
-                  {% else %}
-                    <p class="episode-title">{{ show.episode_title }}</p>
-                  {% endif %}
-                </a>
-              </div>
-            {% endfor %}
-          {% endif %}
-        </div>
-
-      {% else %}
-        
-        {# --- HOMEPAGE VIEW (No Search) --- #}
-
-        <h2><span class="eye-icon" aria-hidden="true"></span> Most Watched Today</h2>
-        
-        <div class="slideshow-container">
-          {# Desktop Slideshow #}
-          <div class="desktop-slideshow">
-            <div class="slideshow-inner">
-              {% for show in trending_shows %}
-                <div class="mySlides slideshow-item">
-                  <a href="{{ url_for('show_details', slug=show.slug) }}">
-                    {% if show.poster_path %}
-                      <img src="{{ show.poster_path }}" alt="{{ show.show_name }}" class="slideshow-image">
-                    {% else %}
-                      <div class="placeholder-image">No Poster</div>
-                    {% endif %}
-                    <div class="slide-caption">{{ show.show_name }}</div>
-                  </a>
-                </div>
-              {% endfor %}
-            </div>
-          </div>
-
-          {# Mobile Slideshow #}
-          <div class="mobile-slideshow">
-            <div class="slideshow-inner">
-              {% for show in trending_shows %}
-                <div class="mySlides slideshow-item">
-                  <a href="{{ url_for('show_details', slug=show.slug) }}">
-                    {% if show.poster_path %}
-                      <img src="{{ show.poster_path }}" alt="{{ show.show_name }}" class="slideshow-image">
-                    {% else %}
-                      <div class="placeholder-image">No Poster</div>
-                    {% endif %}
-                    <div class="slide-caption">{{ show.show_name }}</div>
-                  </a>
-                </div>
-              {% endfor %}
-            </div>
-            <div class="slideshow-controls">
-                <button class="prev">&#10094;</button>
-                <button class="next">&#10095;</button>
-            </div>
-            <div class="slideshow-dots"></div>
-          </div>
-        </div>
-
-        <h2><span class="new-icon" aria-hidden="true"></span> Newly Added</h2>
-        <div class="tv-shows">
-          {% for show in shows.items %}
-            <div class="show-card">
-              <a href="{{ url_for('show_details', slug=show.slug) }}">
-                {% if show.poster_path %}
-                  <img src="{{ show.poster_path }}" alt="{{ show.show_name }}" loading="lazy">
-                {% else %}
-                  <div class="placeholder-image">No Poster</div>
-                {% endif %}
-                
-                <h3>{{ show.show_name }}</h3>
-                
-                {# --- Movie vs TV Display Logic --- #}
-                {% if site_mode == 'movies' %}
-                    <p class="episode-title" style="color:#aaa; font-weight:normal;">
-                        {{ show.year if show.year else '' }}
-                        {% if show.rating %}
-                             • <i class="fas fa-star" style="color:gold; font-size:0.9em;"></i> {{ show.rating }}
-                        {% endif %}
-                    </p>
-                {% else %}
-                    <p class="episode-title">{{ show.episode_title }}</p>
-                {% endif %}
-              </a>
-            </div>
-          {% endfor %}
-        </div>
-
-      {% endif %}
-
-      {# --- Pagination --- #}
-      <div class="pagination">
-        {% if shows.has_prev %}
-          <a href="{{ url_for('index', page=shows.prev_num, search=request.args.get('search', '')) }}">Previous</a>
-        {% else %}
-          <span class="disabled">Previous</span>
-        {% endif %}
-
-        {% for page_num in shows.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
-          {% if page_num %}
-            {% if shows.page == page_num %}
-              <span class="current-page">{{ page_num }}</span>
-            {% else %}
-              <a href="{{ url_for('index', page=page_num, search=request.args.get('search', '')) }}">{{ page_num }}</a>
-            {% endif %}
-          {% else %}
-            <span class="ellipsis">…</span>
-          {% endif %}
+    <div class="hero-orbit" aria-hidden="true">
+        {% for show in trending_shows[:3] %}
+            {% if show.poster_path %}<img src="{{ show.poster_path }}" alt="" width="240" height="360" {% if not loop.first %}loading="lazy"{% endif %}>{% endif %}
         {% endfor %}
+    </div>
+</section>
 
-        {% if shows.has_next %}
-          <a href="{{ url_for('index', page=shows.next_num, search=request.args.get('search', '')) }}">Next</a>
-        {% else %}
-          <span class="disabled">Next</span>
-        {% endif %}
-      </div>
-
+{% if search_query %}
+<section class="shell content-section search-results">
+    <div class="section-heading section-heading-stack">
+        <div>
+            <span class="eyebrow">Search</span>
+            <h2>Results for “{{ search_query }}”</h2>
+        </div>
+        <a class="text-link" href="{{ category_home_url(site_mode) }}">Clear search</a>
     </div>
 
-    {# --- Right Sidebar (Ad) --- #}
-    <div class="col-lg-2 d-none d-lg-block text-center">
-      <div style="position: sticky; top: 20px;">
-        <div id="ezoic-pub-ad-placeholder-108"></div>
-      </div>
+    <nav class="category-tabs" aria-label="Search categories">
+        <a href="{{ category_home_url('tv', search=search_query) }}" {% if site_mode == 'tv' %}aria-current="page"{% endif %}>TV <span>{{ result_counts.tv }}</span></a>
+        <a href="{{ category_home_url('anime', search=search_query) }}" {% if site_mode == 'anime' %}aria-current="page"{% endif %}>Anime <span>{{ result_counts.anime }}</span></a>
+        <a href="{{ category_home_url('movies', q=search_query) }}">Movies <span>{{ result_counts.movies }}</span></a>
+    </nav>
+
+    {% if message %}
+    <div class="empty-state">
+        <span aria-hidden="true">⌕</span>
+        <h3>No exact match yet</h3>
+        <p>{{ message }}</p>
     </div>
-  </div>
-</div>
+    {% else %}
+    <div class="media-grid">
+        {% for show in shows.items %}{{ poster_card(show) }}{% endfor %}
+    </div>
+    {% endif %}
+</section>
+{% else %}
+<section class="shell content-section">
+    <div class="section-heading">
+        <div><span class="eyebrow">Popular now</span><h2>Most requested</h2></div>
+        <a class="text-link" href="{{ category_browse_url(site_mode, sort_by='rating_desc') }}">Browse top rated</a>
+    </div>
+    <div class="media-rail">
+        {% for show in trending_shows %}{{ poster_card(show, eager=loop.index <= 3) }}{% endfor %}
+    </div>
+</section>
+
+<section class="shell content-section">
+    <div class="section-heading">
+        <div><span class="eyebrow">Fresh availability</span><h2>Recently updated</h2></div>
+        <span class="result-count">{{ shows.total }} available</span>
+    </div>
+    <div class="media-grid">
+        {% for show in shows.items %}{{ poster_card(show) }}{% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{% if shows.pages > 1 %}
+<nav class="pagination shell" aria-label="Pagination">
+    {% if shows.has_prev %}<a href="{{ category_home_url(site_mode, page=shows.prev_num, search=search_query) }}">← Previous</a>{% endif %}
+    <span>Page {{ shows.page }} of {{ shows.pages }}</span>
+    {% if shows.has_next %}<a href="{{ category_home_url(site_mode, page=shows.next_num, search=search_query) }}">Next →</a>{% endif %}
+</nav>
+{% endif %}
+
+<aside class="ad-slot shell google-auto-ads-ignore" aria-label="Advertisement">
+    <span>Advertisement</span>
+    <div id="ezoic-pub-ad-placeholder-107"></div>
+</aside>
 {% endblock %}

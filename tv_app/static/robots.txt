@@ -1,4 +1,6 @@
 User-agent: *
 Allow: /
-Disallow: /?search=
+Disallow: /api/
+Disallow: /download/
+Disallow: /nuke
 Sitemap: https://ibox-tv.com/sitemap.xml

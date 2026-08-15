@@ -116,7 +116,7 @@ async def fetch_new_telegram_posts(channel_env_var: str, redis_key_suffix: str) 
 
 def parse_telegram_post(post) -> Optional[Dict]:
     try:
-        text = post.caption
+        text = post.caption or post.text or ""
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
         if len(lines) < 2: return None
         
@@ -228,7 +228,7 @@ async def fetch_tmdb_tv_data(show_name: str, search_year: int, search_season: in
 @celery.task(bind=True, retry_backoff=True, max_retries=3)
 def update_tv_shows(self):
     redis_client = Redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
-    lock = redis_client.lock("update_tv_shows_lock", timeout=120)
+    lock = redis_client.lock("update_tv_shows_lock", timeout=540)
     if not lock.acquire(blocking=False): return
 
     from tv_app.app import app
@@ -240,7 +240,9 @@ def update_tv_shows(self):
             for src in [{'type':'tv','v':'TELEGRAM_CHANNEL_ID','k':'tv_main'}, {'type':'anime','v':'TELEGRAM_ANIME_CHANNEL_ID','k':'anime_main'}]:
                 posts = asyncio.run(fetch_new_telegram_posts(src['v'], src['k']))
                 for post in posts:
-                    if redis_client.exists(f"processed_messages:{post.message_id}"): continue
+                    processed_key = f"processed_messages:{src['k']}:{post.message_id}"
+                    if redis_client.exists(processed_key):
+                        continue
                     p = parse_telegram_post(post)
                     if not p: continue
                     
@@ -289,11 +291,12 @@ def update_tv_shows(self):
                             year=tmdb["year"],
                             rating=tmdb["rating"],
                             category=src['type'],
-                            content_hash=c_hash
+                            content_hash=c_hash,
+                            slug=re.sub(r'[^a-z0-9]+', '-', tmdb["show_name_from_tmdb"].lower()).strip('-')
                         ))
                         logger.info(f"✅ Added: {tmdb['show_name_from_tmdb']}")
                     
-                    redis_client.set(f"processed_messages:{post.message_id}", 1, ex=86400)
+                    redis_client.set(processed_key, 1, ex=86400)
             
             db.session.commit()
             logger.info("update_tv_shows: Batch Committed.")

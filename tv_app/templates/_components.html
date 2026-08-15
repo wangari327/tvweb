@@ -1,0 +1,27 @@
+{% macro poster_card(item, eager=false) -%}
+<a class="media-card" href="{{ content_url(item) }}">
+    <div class="poster-frame">
+        {% if item.poster_path %}
+        <img src="{{ item.poster_path }}" alt="{{ item.show_name }} poster" width="500" height="750" {% if not eager %}loading="lazy"{% endif %} decoding="async">
+        {% else %}
+        <div class="poster-placeholder" aria-label="Poster unavailable"><span>iBOX</span></div>
+        {% endif %}
+        {% if item.rating or item.vote_average %}
+        <span class="rating-badge" aria-label="Rating {{ '%.1f'|format(item.rating or item.vote_average) }} out of 10">
+            <span aria-hidden="true">★</span> {{ "%.1f"|format(item.rating or item.vote_average) }}
+        </span>
+        {% endif %}
+        <span class="card-action">View details</span>
+    </div>
+    <div class="card-copy">
+        <h3>{{ item.show_name }}</h3>
+        <p>
+            {% if item.category == 'movie' %}
+                {{ item.year or 'Movie' }}
+            {% else %}
+                {{ item.episode_title or ('Anime series' if item.category == 'anime' else 'TV series') }}
+            {% endif %}
+        </p>
+    </div>
+</a>
+{%- endmacro %}

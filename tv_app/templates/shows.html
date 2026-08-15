@@ -1,128 +1,71 @@
 {% extends "base.html" %}
+{% from "_components.html" import poster_card with context %}
 
-{% block title %}Browse All TV Shows{% endblock %}
-{% block meta_description %}Explore our library of available TV shows and Anime. Filter by genre, rating, and year to find your next download.{% endblock %}
+{% block title %}{{ title }}{% endblock %}
+{% block meta_description %}Browse available {{ 'anime' if site_mode == 'anime' else 'TV shows' }} by genre, year, and rating on iBOX TV.{% endblock %}
 
 {% block content %}
-<div class="container" style="margin-top: 20px;">
-    <h2><i class="fas fa-tv"></i> Available TV Shows</h2>
+<section class="page-intro shell">
+    <span class="eyebrow">Catalogue</span>
+    <h1>{{ title }}</h1>
+    <p>Filter the currently available catalogue without wading through stale or unavailable entries.</p>
+</section>
 
-    <form method="GET" action="{{ url_for('list_shows') }}" class="filter-form" style="background: #1a1a1a; padding: 20px; border-radius: 8px; border: 1px solid #333; margin-bottom: 30px; display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end;">
-        
-        <div class="filter-group">
-            <label style="display:block; font-size: 0.85em; color: #888; margin-bottom: 5px;">Genre:</label>
-            <select name="genre" style="padding: 10px; background: #222; color: white; border: 1px solid #444; border-radius: 4px; min-width: 140px;">
-                <option value="">All Genres</option>
-                {% for genre in genres %}
-                    <option value="{{ genre.name }}" {% if genre.name == selected_genre %}selected{% endif %}>{{ genre.name }}</option>
-                {% endfor %}
+<section class="shell catalogue-layout">
+    <form method="get" action="{{ url_for(browse_endpoint) }}" class="filter-panel">
+        <div class="filter-heading">
+            <h2>Refine results</h2>
+            <a href="{{ url_for(browse_endpoint) }}">Reset</a>
+        </div>
+        <label>Genre
+            <select name="genre">
+                <option value="">All genres</option>
+                {% for genre in genres %}<option value="{{ genre.name }}" {% if genre.name == selected_genre %}selected{% endif %}>{{ genre.name }}</option>{% endfor %}
             </select>
-        </div>
-
-        <div class="filter-group">
-            <label style="display:block; font-size: 0.85em; color: #888; margin-bottom: 5px;">Rating:</label>
-            <select name="rating" style="padding: 10px; background: #222; color: white; border: 1px solid #444; border-radius: 4px; min-width: 120px;">
-                <option value="">All Ratings</option>
-                {% for r in ratings %}
-                    <option value="{{ r }}" {% if r == selected_rating %}selected{% endif %}>{{ r }}+ Stars</option>
-                {% endfor %}
+        </label>
+        <label>Minimum rating
+            <select name="rating">
+                <option value="">Any rating</option>
+                {% for rating in ratings %}<option value="{{ rating }}" {% if rating == selected_rating %}selected{% endif %}>{{ rating }}+</option>{% endfor %}
             </select>
-        </div>
-
-        <div class="filter-group">
-            <label style="display:block; font-size: 0.85em; color: #888; margin-bottom: 5px;">Year:</label>
-            <select name="year" style="padding: 10px; background: #222; color: white; border: 1px solid #444; border-radius: 4px; min-width: 100px;">
-                <option value="">All Years</option>
-                {% for y in years %}
-                    <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}</option>
-                {% endfor %}
+        </label>
+        <label>Release year
+            <select name="year">
+                <option value="">Any year</option>
+                {% for year in years %}<option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>{{ year }}</option>{% endfor %}
             </select>
-        </div>
-
-        <div class="filter-group">
-            <label style="display:block; font-size: 0.85em; color: #888; margin-bottom: 5px;">Sort By:</label>
-            <select name="sort_by" style="padding: 10px; background: #222; color: white; border: 1px solid #444; border-radius: 4px; min-width: 140px;">
-                <option value="name_asc" {% if current_sort_by == 'name_asc' %}selected{% endif %}>Name (A-Z)</option>
-                <option value="date_desc" {% if current_sort_by == 'date_desc' %}selected{% endif %}>Newest Added</option>
-                <option value="rating_desc" {% if current_sort_by == 'rating_desc' %}selected{% endif %}>Highest Rated</option>
+        </label>
+        <label>Sort by
+            <select name="sort_by">
+                <option value="name_asc" {% if current_sort_by == 'name_asc' %}selected{% endif %}>Title A–Z</option>
+                <option value="date_desc" {% if current_sort_by == 'date_desc' %}selected{% endif %}>Recently updated</option>
+                <option value="rating_desc" {% if current_sort_by == 'rating_desc' %}selected{% endif %}>Highest rated</option>
             </select>
-        </div>
-
-        <div style="display: flex; gap: 10px;">
-            <button type="submit" class="btn btn-primary" style="padding: 10px 25px; font-weight: bold;">Filter</button>
-            <a href="{{ url_for('list_shows') }}" class="btn" style="background: #444; color: white; text-decoration: none; padding: 10px 25px; border-radius: 4px; display: flex; align-items: center;">Reset</a>
-        </div>
+        </label>
+        <button class="button button-primary" type="submit">Apply filters</button>
     </form>
 
-    {% if shows.items %}
-    <div class="show-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 25px; margin-bottom: 40px;">
-        {% for show in shows.items %}
-            <a href="{{ url_for('show_details', slug=show.slug) }}" style="text-decoration: none; color: inherit;">
-                <div class="show-card" style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; overflow: hidden; position: relative; transition: transform 0.3s, border-color 0.3s; height: 100%;">
-                    
-                    <div style="aspect-ratio: 2/3; background: #000; overflow: hidden;">
-                        {% if show.poster_path %}
-                        <img src="{{ show.poster_path }}" alt="{{ show.show_name }}" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s;">
-                        {% else %}
-                        <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #444;">
-                            <i class="fas fa-tv fa-3x"></i>
-                        </div>
-                        {% endif %}
-                    </div>
+    <div class="catalogue-results">
+        <div class="section-heading compact-heading">
+            <div><span class="eyebrow">Results</span><h2>{{ shows.total }} titles</h2></div>
+            {% if selected_genre or selected_rating or selected_year %}<span class="filter-status">Filtered</span>{% endif %}
+        </div>
 
-                    {% if show.rating %}
-                    <div style="position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.85); color: #ffc107; padding: 4px 8px; border-radius: 6px; font-size: 0.85em; font-weight: 800; border: 1px solid rgba(255,193,7,0.3);">
-                        ★ {{ "%.1f"|format(show.rating) }}
-                    </div>
-                    {% endif %}
-
-                    <div style="padding: 12px;">
-                        <h3 style="margin: 0 0 5px 0; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff;" title="{{ show.show_name }}">
-                            {{ show.show_name }}
-                        </h3>
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 0.8em; color: #888;">{{ show.episode_title or 'Series' }}</span>
-                            <span style="font-size: 0.75em; color: #555; background: #222; padding: 2px 5px; border-radius: 3px;">{{ show.year or 'TV' }}</span>
-                        </div>
-                    </div>
-                </div>
-            </a>
-        {% endfor %}
-    </div>
-    {% else %}
-    <div style="text-align: center; padding: 60px; background: #111; border-radius: 12px; border: 1px dashed #333;">
-        <i class="fas fa-search fa-3x" style="color: #444; margin-bottom: 15px;"></i>
-        <h3 style="color: #888;">No shows found matching those filters.</h3>
-    </div>
-    {% endif %}
-
-    <div class="pagination" style="display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; padding-bottom: 50px;">
-        {% if shows.has_prev %}
-            <a href="{{ url_for('list_shows', page=shows.prev_num, genre=selected_genre, rating=selected_rating, year=selected_year, sort_by=current_sort_by) }}" class="btn" style="background: #222; color: #fff;">« Previous</a>
+        {% if shows.items %}
+        <div class="media-grid catalogue-grid">
+            {% for show in shows.items %}{{ poster_card(show) }}{% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state"><span aria-hidden="true">⌕</span><h3>No matches</h3><p>Try removing one or more filters.</p></div>
         {% endif %}
 
-        {% for page_num in shows.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
-            {% if page_num %}
-                {% if shows.page == page_num %}
-                    <span class="btn" style="background: #007bff; color: white; cursor: default; font-weight: bold; border-color: #007bff;">{{ page_num }}</span>
-                {% else %}
-                    <a href="{{ url_for('list_shows', page=page_num, genre=selected_genre, rating=selected_rating, year=selected_year, sort_by=current_sort_by) }}" class="btn" style="background: #222; color: #888;">{{ page_num }}</a>
-                {% endif %}
-            {% else %}
-                <span style="color: #444; align-self: center;">...</span>
-            {% endif %}
-        {% endfor %}
-
-        {% if shows.has_next %}
-            <a href="{{ url_for('list_shows', page=shows.next_num, genre=selected_genre, rating=selected_rating, year=selected_year, sort_by=current_sort_by) }}" class="btn" style="background: #222; color: #fff;">Next »</a>
+        {% if shows.pages > 1 %}
+        <nav class="pagination" aria-label="Pagination">
+            {% if shows.has_prev %}<a href="{{ url_for(browse_endpoint, page=shows.prev_num, genre=selected_genre, rating=selected_rating, year=selected_year, sort_by=current_sort_by) }}">← Previous</a>{% endif %}
+            <span>Page {{ shows.page }} of {{ shows.pages }}</span>
+            {% if shows.has_next %}<a href="{{ url_for(browse_endpoint, page=shows.next_num, genre=selected_genre, rating=selected_rating, year=selected_year, sort_by=current_sort_by) }}">Next →</a>{% endif %}
+        </nav>
         {% endif %}
     </div>
-</div>
-
-<style>
-.show-card:hover { transform: translateY(-8px); border-color: #007bff !important; box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
-.show-card:hover img { transform: scale(1.1); }
-.btn-primary { background: #007bff; border: none; }
-.btn-primary:hover { background: #0056b3; }
-</style>
+</section>
 {% endblock %}

@@ -1,32 +1,48 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
-    <title>{% block title %}{% endblock %} | iBOX TV</title>
-    <meta name="description" content="{% block meta_description %}Find, search, and download your favorite TV shows and series quickly and easily on iBOX TV.{% endblock %}">
-    
-    {% if canonical_url %}
-    <link rel="canonical" href="{{ canonical_url }}">
-    {% endif %}
-    
-    {% if meta_robots %}
-    <meta name="robots" content="{{ meta_robots }}">
-    {% endif %}
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#080b14">
+    <title>{% block title %}Discover what to watch{% endblock %} | iBOX TV</title>
+    <meta name="description" content="{% block meta_description %}Discover TV shows, anime, and movies, then continue to the latest available download on iBOX TV.{% endblock %}">
 
-    {# --- COOKIE CONSENT --- #}
-    <script type="text/javascript" src="https://www.termsfeed.com/public/cookie-consent/4.2.0/cookie-consent.js" charset="UTF-8"></script>
-    <script type="text/javascript" charset="UTF-8">
-    document.addEventListener('DOMContentLoaded', function () {
-    cookieconsent.run({"notice_banner_type":"simple","consent_type":"express","palette":"dark","language":"en","page_load_consent_levels":["strictly-necessary"],"notice_banner_reject_button_hide":false,"preferences_center_close_button_hide":false,"page_refresh_confirmation_buttons":false,"website_name":"iBOX TV","website_privacy_policy_url":"https://ibox-tv.com/privacy-policy"});
-    });
+    {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
+    {% if prev_url %}<link rel="prev" href="{{ prev_url }}">{% endif %}
+    {% if next_url %}<link rel="next" href="{{ next_url }}">{% endif %}
+    {% if meta_robots %}<meta name="robots" content="{{ meta_robots }}">{% endif %}
+
+    <meta property="og:site_name" content="iBOX TV">
+    <meta property="og:locale" content="en_US">
+    {% block social_meta %}{% endblock %}
+
+    <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
+    <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=2.0.0">
+
+    <script src="https://www.termsfeed.com/public/cookie-consent/4.2.0/cookie-consent.js" charset="UTF-8"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        if (window.cookieconsent) {
+          cookieconsent.run({
+            notice_banner_type: 'simple',
+            consent_type: 'express',
+            palette: 'dark',
+            language: 'en',
+            page_load_consent_levels: ['strictly-necessary'],
+            notice_banner_reject_button_hide: false,
+            preferences_center_close_button_hide: false,
+            page_refresh_confirmation_buttons: false,
+            website_name: 'iBOX TV',
+            website_privacy_policy_url: '{{ url_for("privacy_policy") }}'
+          });
+        }
+      });
     </script>
-
     <script src="https://cmp.gatekeeperconsent.com/min.js" data-cfasync="false"></script>
     <script src="https://the.gatekeeperconsent.com/cmp.min.js" data-cfasync="false"></script>
 
-    {# --- GOOGLE TAG MANAGER --- #}
     <script type="text/plain" data-cookie-consent="tracking" async src="https://www.googletagmanager.com/gtag/js?id=G-XJQ6LC2PP9"></script>
     <script type="text/plain" data-cookie-consent="tracking">
       window.dataLayer = window.dataLayer || [];
@@ -34,106 +50,60 @@
       gtag('js', new Date());
       gtag('config', 'G-XJQ6LC2PP9');
     </script>
-    <noscript>Free cookie consent management tool by <a href="https://www.termsfeed.com/">TermsFeed Generator</a></noscript>
-    
-    {# --- CSS & ICONS --- #}
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    
-    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon-96x96.png') }}" sizes="96x96" />
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}" />
-    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" />
-    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}" />
-    <meta name="apple-mobile-web-app-title" content="iBOX TV" />
-    <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}" />
-
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ range(1, 10000) | random }}">
-
-    {# --- HOTFIX: Force Desktop Slideshow Layout --- #}
-    <style>
-        @media (min-width: 769px) {
-            .desktop-slideshow {
-                display: flex !important;
-                flex-wrap: nowrap !important;
-                overflow: hidden !important;
-                justify-content: flex-start;
-                align-items: stretch;
-            }
-            .desktop-slideshow .mySlides {
-                flex: 0 0 19.6% !important; /* 5 items per row with margin */
-                width: 19.6% !important;
-                margin: 0 0.2% !important;
-                display: block !important; /* Ensure visibility */
-                box-sizing: border-box;
-            }
-        }
-        @media (max-width: 768px) {
-            .desktop-slideshow { display: none !important; }
-        }
-    </style>
-    
     {% block head_extra %}{% endblock %}
 </head>
-<body>
+<body class="mode-{{ site_mode }}">
+    <a class="skip-link" href="#main-content">Skip to content</a>
 
-    <nav class="navbar google-auto-ads-ignore">
-        <div class="navbar-container">
-            <div class="logo-container">
-                <a href="{{ url_for('index') }}">
-                    <img src="{{ url_for('static', filename='logo.png') }}" alt="iBOX TV Logo" class="logo">
-                </a>
-            </div>
-            
-            <div class="nav-links">
-                <a href="https://ibox-tv.com" class="nav-link {% if site_mode == 'tv' %}active{% endif %}">
-                  <i class="fas fa-home"></i> <span class="link-text {% if site_mode != 'tv' %}smart-reveal{% endif %}">TV Shows</span>
-                </a>
-                <a href="https://anime.ibox-tv.com" class="nav-link {% if site_mode == 'anime' %}active{% endif %}" style="color: #ff7675;">
-                  <i class="fas fa-torii-gate"></i> <span class="link-text {% if site_mode != 'anime' %}smart-reveal{% endif %}">Anime</span>
-                </a>
-                <a href="https://movies.ibox-tv.com" class="nav-link {% if site_mode == 'movies' %}active{% endif %}">
-                    <i class="fas fa-film"></i> <span class="link-text {% if site_mode != 'movies' %}smart-reveal{% endif %}">Movies</span>
-                </a>
-                <a href="{{ url_for('list_shows') }}" class="nav-link {% if request.endpoint == 'list_shows' %}active{% endif %}">
-                  <i class="fas fa-tv"></i><span class="link-text">Browse</span>
-                </a>
-                
-                <span class="brand-text"><span class="ibox-text">iBOX</span><span class="tv-text">TV</span></span>
-                
-                <button type="button" class="search-icon-button" id="search-icon-btn" aria-label="Open Search">
-                    <i class="fas fa-search"></i>
+    <header class="site-header">
+        <div class="shell header-inner">
+            <a class="brand" href="{{ url_for('index') }}" aria-label="iBOX TV home">
+                <img src="{{ url_for('static', filename='logo.png') }}" width="42" height="42" alt="">
+                <span><strong>iBOX</strong>TV</span>
+            </a>
+
+            <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation">
+                <span></span><span></span><span></span><span class="sr-only">Menu</span>
+            </button>
+
+            <nav class="site-nav" id="site-navigation" aria-label="Primary navigation">
+                <a href="{{ url_for('index') }}" {% if site_mode == 'tv' %}aria-current="page"{% endif %}>TV</a>
+                <a href="{{ url_for('anime_index') }}" {% if site_mode == 'anime' %}aria-current="page"{% endif %}>Anime</a>
+                <a href="{{ url_for('list_movies') }}" {% if site_mode == 'movies' %}aria-current="page"{% endif %}>Movies</a>
+                <a href="{{ category_browse_url(site_mode) }}">Browse</a>
+            </nav>
+
+            <form class="header-search" action="{{ category_home_url(site_mode) }}" method="get" role="search">
+                <label class="sr-only" for="global-search">Search {{ site_mode }}</label>
+                <input id="global-search" type="search" name="{{ 'q' if site_mode == 'movies' else 'search' }}" value="{{ search_query|default(search_q|default('')) }}" placeholder="Search {{ 'movies' if site_mode == 'movies' else site_mode }}…" autocomplete="off">
+                <button type="submit" aria-label="Search">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.4-4.4m2.4-5.1a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"/></svg>
                 </button>
-            </div>
-        </div>
-        
-        <div class="floating-search" id="floating-search-bar">
-            <form action="{{ url_for('index') }}" method="GET">
-                <input type="text" name="search" class="search-input" placeholder="Search..." value="{{ search_query if search_query else '' }}">
-                <button type="submit" class="search-button"><i class="fas fa-search"></i></button>
             </form>
         </div>
-    </nav>
+    </header>
 
-    <div class="container">
+    <main id="main-content">
         {% block content %}{% endblock %}
-    </div>
+    </main>
 
-    <footer>
-        <div class="container" style="text-align: center; padding: 15px; font-size: 0.9em; color: #ccc;">
-            <p>
-                &copy; {{ now().year }} iBOX TV |
-                <a href="{{ url_for('privacy_policy') if 'privacy_policy' in config else '#' }}" style="color: #ccc;">Privacy Policy</a> |
-                <a href="#" id="open_preferences_center" style="color: #ccc;">Update Cookies Preferences</a>
-            </p>
+    <footer class="site-footer">
+        <div class="shell footer-grid">
+            <div>
+                <a class="brand brand-footer" href="{{ url_for('index') }}"><span><strong>iBOX</strong>TV</span></a>
+                <p>Find what is available, check the details, and continue securely to Telegram.</p>
+            </div>
+            <div class="footer-links" aria-label="Footer navigation">
+                <a href="{{ url_for('about') }}">About</a>
+                <a href="{{ url_for('privacy_policy') }}">Privacy</a>
+                <a href="https://t.me/i_boxtv" rel="noopener nofollow" target="_blank">Telegram</a>
+                <button type="button" id="open_preferences_center">Cookie preferences</button>
+            </div>
         </div>
+        <div class="shell footer-bottom">© {{ now().year }} iBOX TV</div>
     </footer>
-    
-    {# --- SCRIPTS --- #}
-    <script src="{{ url_for('static', filename='script.js') }}?v={{ range(1, 10000) | random }}"></script>
+
+    <script src="{{ url_for('static', filename='script.js') }}?v=2.0.0" defer></script>
     {% block scripts_extra %}{% endblock %}
-
-    {# --- ADSTERRA SOCIAL BAR (Anti-AdBlock) --- #}
-    <script src="https://enoughprosperabsorbed.com/26/90/f4/2690f4b5b2eb74c865ae5f5d1b42c4e5.js"></script>
-
 </body>
 </html>
-

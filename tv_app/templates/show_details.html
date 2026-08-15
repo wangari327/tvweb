@@ -1,151 +1,92 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
+{% from "_components.html" import poster_card with context %}
 
 {% block title %}{{ title }}{% endblock %}
 {% block meta_description %}{{ meta_description }}{% endblock %}
-
 {% block social_meta %}
-  <meta property="og:title" content="{{ title }}">
-  <meta property="og:type" content="video.tv_show">
-  <meta property="og:url" content="{{ canonical_url }}">
-  {% if show.poster_path %}<meta property="og:image" content="{{ show.poster_path }}">{% endif %}
-  <meta property="og:site_name" content="iBOX TV">
-  <meta property="og:description" content="{{ meta_description }}">
-
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="{{ title }}">
-  <meta name="twitter:description" content="{{ meta_description }}">
-  {% if show.poster_path %}<meta name="twitter:image" content="{{ show.poster_path }}">{% endif %}
+<meta property="og:type" content="{{ 'video.movie' if show.category == 'movie' else 'video.tv_show' }}">
+<meta property="og:title" content="{{ title }} | iBOX TV">
+<meta property="og:url" content="{{ canonical_url }}">
+<meta property="og:description" content="{{ meta_description }}">
+{% if show.poster_path %}<meta property="og:image" content="{{ show.poster_path }}">{% endif %}
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{ title }} | iBOX TV">
+<meta name="twitter:description" content="{{ meta_description }}">
+{% if show.poster_path %}<meta name="twitter:image" content="{{ show.poster_path }}">{% endif %}
 {% endblock %}
 
 {% block content %}
-<div class="show-details-container">
-  <div class="show-details-banner">
-    <h1>{{ show.show_name }}</h1>
-    {% if show.episode_title %}
-      <p class="episode-title">{{ show.episode_title }}</p>
-    {% endif %}
-  </div>
+<article class="detail-page">
+    {% if show.poster_path %}<div class="detail-backdrop" aria-hidden="true"><img src="{{ show.poster_path }}" alt=""></div>{% endif %}
+    <div class="shell detail-shell">
+        <nav class="breadcrumbs" aria-label="Breadcrumb">
+            <a href="{{ url_for('index') }}">Home</a><span>/</span>
+            <a href="{{ category_home_url('movies' if show.category == 'movie' else show.category) }}">{{ 'Movies' if show.category == 'movie' else ('Anime' if show.category == 'anime' else 'TV') }}</a><span>/</span>
+            <span aria-current="page">{{ show.show_name }}</span>
+        </nav>
 
-  <div class="ad-layout-wrapper">
+        <div class="detail-grid">
+            <figure class="detail-poster">
+                {% if show.poster_path %}<img src="{{ show.poster_path }}" alt="{{ show.show_name }} poster" width="500" height="750">{% else %}<div class="poster-placeholder"><span>iBOX</span></div>{% endif %}
+            </figure>
 
-    <div class="ad-sidebar left-sidebar">
-      <div class="ad-sticky-container"></div>
-    </div>
+            <div class="detail-copy">
+                <span class="eyebrow">{{ 'Movie' if show.category == 'movie' else ('Anime' if show.category == 'anime' else 'TV series') }}</span>
+                <h1>{{ show.show_name }}</h1>
+                {% if show.episode_title %}<p class="episode-update">{{ show.episode_title }}</p>{% endif %}
 
-    <div class="show-details-main">
-      <div class="show-image-container">
-        {% if show.poster_path %}
-          <img src="{{ show.poster_path }}" alt="{{ show.show_name }} Poster" class="show-image" loading="lazy">
-        {% else %}
-          <div class="placeholder-image">No Poster Available</div>
-        {% endif %}
-      </div>
+                <div class="meta-chips" aria-label="Title information">
+                    {% if show.year %}<span>{{ show.year }}</span>{% endif %}
+                    {% if show.rating or show.vote_average %}<span class="score"><b aria-hidden="true">★</b> {{ "%.1f"|format(show.rating or show.vote_average) }}</span>{% endif %}
+                    {% for genre in show.genres[:3] %}<span>{{ genre.name }}</span>{% endfor %}
+                </div>
 
-      <div class="show-info">
-        {% if show.overview %}
-          <h2>Overview</h2>
-          <p class="overview">{{ show.overview }}</p>
-        {% endif %}
+                {% if show.overview %}<div class="overview"><h2>Overview</h2><p>{{ show.overview }}</p></div>{% endif %}
 
-        {% if show.vote_average %}
-          <p class="rating"><strong>Rating:</strong> {{ "%.1f"|format(show.vote_average) }}/10</p>
-        {% endif %}
+                <div class="availability-card">
+                    <div>
+                        <span class="availability-dot" aria-hidden="true"></span>
+                        <p><strong>Available now</strong><small>The download flow continues in Telegram.</small></p>
+                    </div>
+                    {% if show.download_link %}
+                    <a href="{{ url_for('redirect_to_download', show_id=show.id) }}" class="button button-primary button-large" rel="nofollow">Continue to download <span aria-hidden="true">→</span></a>
+                    {% else %}
+                    <span class="button button-disabled">Temporarily unavailable</span>
+                    {% endif %}
+                </div>
 
-        {% if show.genres %}
-          <p class="genres"><strong>Genres:</strong>
-            {% for genre in show.genres %}
-              {{ genre.name }}{% if not loop.last %}, {% endif %}
-            {% endfor %}
-          </p>
-        {% endif %}
-
-        {% if show.year %}
-          <p class="year"><strong>Year:</strong> {{ show.year }}</p>
-        {% endif %}
-
-        {# --- 📢 TELEGRAM ALERT (Updated) --- #}
-        <div class="tg-inline-alert" style="background: rgba(34, 158, 217, 0.1); border: 1px solid rgba(34, 158, 217, 0.3); border-left: 4px solid #229ED9; padding: 15px; margin: 25px 0; border-radius: 8px; display: flex; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
-            <div style="background: #229ED9; width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 15px; flex-shrink: 0; box-shadow: 0 4px 10px rgba(34, 158, 217, 0.4);">
-                 <i class="fab fa-telegram-plane" style="color: white; font-size: 20px; margin-left: -2px;"></i>
-            </div>
-            <div>
-                <p style="margin: 0; color: #eee; font-size: 15px; line-height: 1.4; margin-bottom: 4px;">
-                    <strong>Heads Up:</strong> Join Our Telegram For instant Updates and direct Files 🔥
-                </p>
-                <a href="https://t.me/i_boxtv" target="_blank" style="color: #229ED9; text-decoration: none; font-weight: 700; font-size: 14px; letter-spacing: 0.3px;">
-                    Join the channel here <i class="fas fa-arrow-right" style="font-size: 12px; margin-left: 3px;"></i>
+                <a class="telegram-note" href="https://t.me/i_boxtv" target="_blank" rel="noopener nofollow">
+                    <span aria-hidden="true">↗</span>
+                    <span><strong>Get instant updates</strong><small>Follow the iBOX TV Telegram channel</small></span>
                 </a>
             </div>
         </div>
-
-        {# --- 🔽 DOWNLOAD BUTTON (Moved UP - Priority #1) --- #}
-        {% if show.download_link %}
-          <div style="margin-bottom: 0;">
-            <a href="{{ url_for('redirect_to_download', show_id=show.id) }}" class="download-button" rel="nofollow">Download Now</a>
-          </div>
-        {% else %}
-          <p><em>Download link not available for this item.</em></p>
-        {% endif %}
-
-        {# --- 💰 ADSTERRA NATIVE BANNER (Moved DOWN - Priority #2) --- #}
-        {# Added margin-top: 30px to create space between button and ads #}
-        <div style="margin-top: 30px; margin-bottom: 20px; text-align: center;">
-            <script async="async" data-cfasync="false" src="https://enoughprosperabsorbed.com/bbe4068b6366be013ab27b3042e5d4b2/invoke.js"></script>
-            <div id="container-bbe4068b6366be013ab27b3042e5d4b2"></div>
-        </div>
-
-      </div>
     </div>
+</article>
 
-    <div class="ad-sidebar right-sidebar">
-      <div class="ad-sticky-container"></div>
-    </div>
+<aside class="ad-slot shell google-auto-ads-ignore" aria-label="Advertisement">
+    <span>Advertisement</span>
+    <div id="ezoic-pub-ad-placeholder-108"></div>
+</aside>
 
-  </div>
-</div>
+{% if related_shows %}
+<section class="shell content-section related-section">
+    <div class="section-heading"><div><span class="eyebrow">More to explore</span><h2>Recently updated</h2></div></div>
+    <div class="media-rail">{% for item in related_shows %}{{ poster_card(item) }}{% endfor %}</div>
+</section>
+{% endif %}
 {% endblock %}
 
 {% block scripts_extra %}
-  <script type="application/ld+json">
-  {% if show.episode_title %}
-  {
-    "@context": "https://schema.org",
-    "@type": "TVEpisode",
-    "name": {{ show.episode_title|tojson }},
-    {% if show.overview %}"description": {{ show.overview|tojson }},{% endif %}
-    {% if show.poster_path %}"image": {{ show.poster_path|tojson }},{% endif %}
-    "url": {{ canonical_url|tojson }},
-    "partOfSeries": { "@type": "TVSeries", "name": {{ show.show_name|tojson }} },
-    {% if show.rating or show.vote_average %}
-    "aggregateRating": { 
-        "@type": "AggregateRating", 
-        "ratingValue": "{{ show.rating or show.vote_average }}", 
-        "bestRating": "10", 
-        "worstRating": "1",
-        "ratingCount": "1" 
-    },
-    {% endif %}
-    {% if show.created_at %}"datePublished": "{{ show.created_at.date().isoformat() }}"{% endif %}
-  }
-  {% else %}
-  {
-    "@context": "https://schema.org",
-    "@type": "TVSeries",
-    "name": {{ show.show_name|tojson }},
-    {% if show.overview %}"description": {{ show.overview|tojson }},{% endif %}
-    {% if show.poster_path %}"image": {{ show.poster_path|tojson }},{% endif %}
-    "url": {{ canonical_url|tojson }},
-    {% if show.rating or show.vote_average %}
-    "aggregateRating": { 
-        "@type": "AggregateRating", 
-        "ratingValue": "{{ show.rating or show.vote_average }}", 
-        "bestRating": "10", 
-        "worstRating": "1",
-        "ratingCount": "1" 
-    },
-    {% endif %}
-    {% if show.created_at %}"datePublished": "{{ show.created_at.date().isoformat() }}"{% endif %}
-  }
-  {% endif %}
-  </script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": {{ ('Movie' if show.category == 'movie' else 'TVSeries')|tojson }},
+  "name": {{ show.show_name|tojson }},
+  "url": {{ canonical_url|tojson }}{% if show.overview %},
+  "description": {{ show.overview|tojson }}{% endif %}{% if show.poster_path %},
+  "image": {{ show.poster_path|tojson }}{% endif %}{% if show.genres %},
+  "genre": [{% for genre in show.genres %}{{ genre.name|tojson }}{% if not loop.last %}, {% endif %}{% endfor %}]{% endif %}
+}
+</script>
 {% endblock %}

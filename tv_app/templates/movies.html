@@ -1,219 +1,68 @@
 {% extends "base.html" %}
+{% from "_components.html" import poster_card with context %}
 
 {% block title %}{{ title }}{% endblock %}
-{% block meta_description %}Stream and download the latest movies. Filter by year, rating, and popularity on iBOX TV.{% endblock %}
+{% block meta_description %}Browse currently available movies by year and rating on iBOX TV.{% endblock %}
 
 {% block content %}
-<div class="movie-page-container">
-    <div class="page-header" style="margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px;">
-        <h2><i class="fas fa-film" style="color: #e50914;"></i> Movies</h2>
-    </div>
+<section class="page-intro shell movie-intro">
+    <span class="eyebrow">Movie library</span>
+    <h1>Find tonight’s movie.</h1>
+    <p>Search the available collection, compare ratings, and continue to the matching Telegram result.</p>
+    <form class="hero-search page-search" action="{{ url_for('list_movies') }}" method="get" role="search">
+        <label class="sr-only" for="movie-search">Search movies</label>
+        <input id="movie-search" type="search" name="q" value="{{ search_q }}" placeholder="Search by movie title…">
+        <button class="button button-primary" type="submit">Search</button>
+    </form>
+</section>
 
-    {# --- Filter Form --- #}
-    <form method="GET" action="{{ url_for('list_movies') }}" class="filter-form" style="margin-bottom: 30px; display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end;">
-        {% if search_q %}
-        <input type="hidden" name="q" value="{{ search_q }}">
-        {% endif %}
-        
-        <div class="filter-group">
-            <label for="rating" style="display: block; font-size: 0.85rem; color: #aaa; margin-bottom: 5px;">Rating</label>
-            <select id="rating" name="rating" style="padding: 8px; background: #222; color: #fff; border: 1px solid #444; border-radius: 4px;">
-                <option value="">All Ratings</option>
-                <option value="9" {% if selected_rating == 9 %}selected{% endif %}>9+ Stars</option>
-                <option value="8" {% if selected_rating == 8 %}selected{% endif %}>8+ Stars</option>
-                <option value="7" {% if selected_rating == 7 %}selected{% endif %}>7+ Stars</option>
-                <option value="6" {% if selected_rating == 6 %}selected{% endif %}>6+ Stars</option>
+<section class="shell catalogue-layout">
+    <form method="get" action="{{ url_for('list_movies') }}" class="filter-panel">
+        <div class="filter-heading"><h2>Refine results</h2><a href="{{ url_for('list_movies') }}">Reset</a></div>
+        {% if search_q %}<input type="hidden" name="q" value="{{ search_q }}">{% endif %}
+        <label>Minimum rating
+            <select name="rating">
+                <option value="">Any rating</option>
+                {% for rating in [9, 8, 7, 6] %}<option value="{{ rating }}" {% if selected_rating == rating %}selected{% endif %}>{{ rating }}+</option>{% endfor %}
             </select>
-        </div>
-
-        <div class="filter-group">
-            <label for="year" style="display: block; font-size: 0.85rem; color: #aaa; margin-bottom: 5px;">Year</label>
-            <select id="year" name="year" style="padding: 8px; background: #222; color: #fff; border: 1px solid #444; border-radius: 4px;">
-                <option value="">All Years</option>
-                {% for y in years %}
-                    <option value="{{ y }}" {% if selected_year == y %}selected{% endif %}>{{ y }}</option>
-                {% endfor %}
+        </label>
+        <label>Release year
+            <select name="year">
+                <option value="">Any year</option>
+                {% for year in years %}<option value="{{ year }}" {% if selected_year == year %}selected{% endif %}>{{ year }}</option>{% endfor %}
             </select>
-        </div>
-
-        <div class="filter-group">
-            <label for="sort_by" style="display: block; font-size: 0.85rem; color: #aaa; margin-bottom: 5px;">Sort</label>
-            <select id="sort_by" name="sort_by" style="padding: 8px; background: #222; color: #fff; border: 1px solid #444; border-radius: 4px;">
-                <option value="date_desc" {% if current_sort == 'date_desc' %}selected{% endif %}>Newest</option>
-                <option value="date_asc" {% if current_sort == 'date_asc' %}selected{% endif %}>Oldest</option>
-                <option value="rating_desc" {% if current_sort == 'rating_desc' %}selected{% endif %}>Top Rated</option>
-                <option value="name_asc" {% if current_sort == 'name_asc' %}selected{% endif %}>A-Z</option>
+        </label>
+        <label>Sort by
+            <select name="sort_by">
+                <option value="date_desc" {% if current_sort == 'date_desc' %}selected{% endif %}>Recently added</option>
+                <option value="date_asc" {% if current_sort == 'date_asc' %}selected{% endif %}>Oldest added</option>
+                <option value="rating_desc" {% if current_sort == 'rating_desc' %}selected{% endif %}>Highest rated</option>
+                <option value="name_asc" {% if current_sort == 'name_asc' %}selected{% endif %}>Title A–Z</option>
             </select>
-        </div>
-
-        <button type="submit" style="padding: 8px 16px; background: #e50914; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Filter</button>
-        
-        {% if selected_year or selected_rating or current_sort != 'date_desc' or search_q %}
-            <a href="{{ url_for('list_movies') }}" style="color: #aaa; text-decoration: underline; align-self: center; font-size: 0.9rem;">Reset</a>
-        {% endif %}
+        </label>
+        <button class="button button-primary" type="submit">Apply filters</button>
     </form>
 
-    {# --- Movie Grid --- #}
-    <div class="movie-grid">
-        {% for movie in movies.items %}
-            <a href="{{ url_for('show_details', slug=movie.slug) }}" class="movie-card">
-                <div class="poster-wrapper">
-                    {% if movie.poster_path %}
-                        <img src="{{ movie.poster_path }}" alt="{{ movie.show_name }}" loading="lazy">
-                    {% else %}
-                        <div class="no-poster" style="display: flex; align-items: center; justify-content: center; height: 100%; background: #333; color: #555;">
-                            <i class="fas fa-film fa-2x"></i>
-                        </div>
-                    {% endif %}
-                    
-                    {% if movie.rating %}
-                        <div class="rating-badge">
-                            <i class="fas fa-star" style="font-size: 0.7em;"></i> {{ "%.1f"|format(movie.rating) }}
-                        </div>
-                    {% endif %}
-                </div>
-                <div class="movie-info">
-                    <h3 class="movie-title">{{ movie.show_name }}</h3>
-                    <div class="movie-meta">
-                        <span class="movie-year">{{ movie.year or '' }}</span>
-                    </div>
-                </div>
-            </a>
-        {% endfor %}
-    </div>
-    
-    {% if movies.items|length == 0 %}
-        <div class="no-results" style="padding: 40px; text-align: center; color: #888;">
-            <i class="fas fa-search fa-3x" style="margin-bottom: 20px; opacity: 0.5;"></i>
-            <p>No movies found matching your criteria.</p>
+    <div class="catalogue-results">
+        <div class="section-heading compact-heading">
+            <div><span class="eyebrow">Results</span><h2>{% if search_q %}“{{ search_q }}”{% else %}{{ movies.total }} movies{% endif %}</h2></div>
+            {% if search_q %}<a class="text-link" href="{{ url_for('list_movies') }}">Clear search</a>{% endif %}
         </div>
-    {% endif %}
-
-    {# --- Pagination --- #}
-    <div class="pagination" style="margin-top: 40px; display: flex; justify-content: center; gap: 5px; flex-wrap: wrap;">
-        {% if movies.has_prev %}
-            <a href="{{ url_for('list_movies', page=movies.prev_num, q=search_q, sort_by=current_sort, year=selected_year, rating=selected_rating) }}" class="page-link">&laquo; Prev</a>
+        {% if movies.items %}
+        <div class="media-grid catalogue-grid">
+            {% for movie in movies.items %}{{ poster_card(movie) }}{% endfor %}
+        </div>
         {% else %}
-            <span class="page-link disabled" style="opacity: 0.5; cursor: default;">&laquo; Prev</span>
+        <div class="empty-state"><span aria-hidden="true">⌕</span><h3>No movies found</h3><p>Try a different title or fewer filters.</p></div>
         {% endif %}
 
-        {% for page_num in movies.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=2) %}
-            {% if page_num %}
-                {% if movies.page == page_num %}
-                    <span class="page-link current" style="background: #e50914; color: white; border-color: #e50914;">{{ page_num }}</span>
-                {% else %}
-                    <a href="{{ url_for('list_movies', page=page_num, q=search_q, sort_by=current_sort, year=selected_year, rating=selected_rating) }}" class="page-link">{{ page_num }}</a>
-                {% endif %}
-            {% else %}
-                <span class="page-link dots" style="border: none;">...</span>
-            {% endif %}
-        {% endfor %}
-
-        {% if movies.has_next %}
-            <a href="{{ url_for('list_movies', page=movies.next_num, q=search_q, sort_by=current_sort, year=selected_year, rating=selected_rating) }}" class="page-link">Next &raquo;</a>
-        {% else %}
-            <span class="page-link disabled" style="opacity: 0.5; cursor: default;">Next &raquo;</span>
+        {% if movies.pages > 1 %}
+        <nav class="pagination" aria-label="Pagination">
+            {% if movies.has_prev %}<a href="{{ url_for('list_movies', page=movies.prev_num, q=search_q, sort_by=current_sort, year=selected_year, rating=selected_rating) }}">← Previous</a>{% endif %}
+            <span>Page {{ movies.page }} of {{ movies.pages }}</span>
+            {% if movies.has_next %}<a href="{{ url_for('list_movies', page=movies.next_num, q=search_q, sort_by=current_sort, year=selected_year, rating=selected_rating) }}">Next →</a>{% endif %}
+        </nav>
         {% endif %}
     </div>
-</div>
-
-{# --- Specific Styles for Movie Grid --- #}
-<style>
-    .movie-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-        gap: 15px;
-        width: 100%;
-    }
-    .movie-card {
-        display: block;
-        text-decoration: none;
-        color: inherit;
-        background: #181818;
-        border-radius: 6px;
-        overflow: hidden;
-        transition: transform 0.2s, box-shadow 0.2s;
-        border: 1px solid #2a2a2a;
-    }
-    .movie-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-        border-color: #444;
-    }
-    .poster-wrapper {
-        position: relative;
-        aspect-ratio: 2/3;
-        background: #000;
-        width: 100%;
-    }
-    .poster-wrapper img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-    }
-    .rating-badge {
-        position: absolute;
-        top: 6px;
-        right: 6px;
-        background: #f1c40f;
-        color: #000;
-        padding: 2px 5px;
-        border-radius: 3px;
-        font-weight: 800;
-        font-size: 0.75rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    }
-    .movie-info {
-        padding: 10px;
-    }
-    .movie-title {
-        font-size: 0.9rem;
-        margin: 0 0 4px 0;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        color: #e5e5e5;
-        font-weight: 500;
-    }
-    .movie-meta {
-        font-size: 0.8rem;
-        color: #777;
-    }
-    
-    /* Pagination Styles Reused */
-    .page-link {
-        display: inline-block;
-        padding: 6px 12px;
-        background: #222;
-        color: #fff;
-        border: 1px solid #444;
-        border-radius: 4px;
-        text-decoration: none;
-    }
-    .page-link:hover:not(.disabled):not(.current) {
-        background: #333;
-    }
-
-    @media (max-width: 500px) {
-        .movie-grid {
-            grid-template-columns: repeat(3, 1fr); /* Force 3 columns on mobile */
-            gap: 8px;
-        }
-        .rating-badge {
-            font-size: 0.65rem;
-            padding: 1px 3px;
-            top: 4px; 
-            right: 4px;
-        }
-        .movie-info {
-            padding: 6px;
-        }
-        .movie-title {
-            font-size: 0.75rem;
-        }
-        .movie-meta {
-            font-size: 0.7rem;
-        }
-    }
-</style>
+</section>
 {% endblock %}

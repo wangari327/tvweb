@@ -1,26 +1,8 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>𝕚𝔹𝕆𝕏 𝕋𝕍 Under Maintenance</title>
-    <style>
-        body {
-            font-family: sans-serif;
-            text-align: center;
-            padding: 50px;
-            background-color: #f0f0f0;
-        }
-        h1 {
-            color: #e74c3c; /* Red color */
-        }
-        p {
-            color: #333;
-        }
-    </style>
-</head>
-<body>
-    <h1>𝕚𝔹𝕆𝕏 𝕋𝕍 Under Maintenance</h1>
-    <p>We're currently performing some maintenance. Please check back later.</p>
-    <p>Sorry for the inconvenience.</p>
-    <img src="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExMnR4ZWFyY2NnMThpZ2NqMm10c2M4bnd1ZGR2bGY1dXR0c2d6NWR5YiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/JIX9t2j0ZTN9S/giphy.gif" alt="Maintenance GIF">
-</body>
-</html>
+{% extends "base.html" %}
+{% block title %}Temporarily unavailable{% endblock %}
+{% block meta_description %}iBOX TV encountered a temporary error.{% endblock %}
+{% block content %}
+<section class="error-page shell">
+    <div><span class="eyebrow">Temporary error</span><h1>We hit a playback snag.</h1><p>The catalogue is still here. Please wait a moment and try again.</p><a class="button button-primary" href="{{ url_for('index') }}">Try the homepage</a></div>
+</section>
+{% endblock %}
