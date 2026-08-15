@@ -16,10 +16,12 @@
     <div class="card-copy">
         <h3>{{ item.show_name }}</h3>
         <p>
-            {% if item.category == 'movie' %}
-                {{ item.year or 'Movie' }}
+            {% if item.episode_title and not item.episode_title.startswith('#') %}
+                {{ item.episode_title }}
+            {% elif item.category == 'movie' %}
+                {{ item.year ~ ' movie' if item.year else 'Movie' }}
             {% else %}
-                {{ item.episode_title or ('Anime series' if item.category == 'anime' else 'TV series') }}
+                Latest {{ 'anime' if item.category == 'anime' else 'TV' }} update
             {% endif %}
         </p>
     </div>

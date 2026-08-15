@@ -25,7 +25,7 @@ class PublicRouteTests(unittest.TestCase):
                         tmdb_id=101,
                         message_id=1001,
                         show_name="The Ark",
-                        episode_title="Season 3 Episode 1-3",
+                        episode_title="#_TheArk",
                         download_link="https://t.me/example?start=the-ark",
                         overview="A crew fights to keep humanity alive on a deep-space mission.",
                         poster_path="https://image.tmdb.org/t/p/w500/the-ark.jpg",
@@ -89,6 +89,8 @@ class PublicRouteTests(unittest.TestCase):
         self.assert_contains(response, '<section class="feature-hero shell"')
         self.assert_contains(response, "Find your next show")
         self.assert_contains(response, "<h1>The Ark</h1>")
+        self.assert_contains(response, "Latest TV update")
+        self.assertNotIn("#_TheArk", body)
         self.assertEqual(body.count('type="search"'), 1)
         self.assertNotIn("?search=&amp;page=1", body)
 
