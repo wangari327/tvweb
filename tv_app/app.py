@@ -218,6 +218,7 @@ def add_public_response_headers(response):
     response.headers.setdefault('X-Content-Type-Options', 'nosniff')
     response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
     response.headers.setdefault('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+    response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
     return response
 
 @app.context_processor
@@ -281,6 +282,23 @@ def _page_urls(
     meta_robots = "index,follow" if should_index else "noindex,follow"
     return canonical_url, prev_url, next_url, meta_robots
 
+
+def _detail_page_title(show: TVShow, max_length: int = 50) -> str:
+    """Keep the complete HTML title within 60 characters with the site brand."""
+    name = " ".join((show.show_name or "Title details").split())
+    if show.category == 'movie':
+        candidate = f"{name} ({show.year})" if show.year else f"{name} - Movie"
+    else:
+        candidate = f"{name} - Episodes"
+
+    if len(candidate) <= max_length:
+        return candidate
+    if len(name) <= max_length:
+        return name
+
+    shortened = name[: max_length - 1].rstrip(" -:,.|")
+    return f"{shortened}…"
+
 @app.template_filter('hostonly')
 def hostonly(url):
     try:
@@ -328,7 +346,10 @@ def _render_index(mode: str, endpoint: str):
         page_title = "Latest anime" if mode == 'anime' else "Latest TV shows"
 
     canonical_url, prev_url, next_url, meta_robots = _page_urls(
-        endpoint, shows, extra_params={'search': search_query}
+        endpoint,
+        shows,
+        extra_params={'search': search_query},
+        index_pagination=True,
     )
 
     return render_template('index.html',
@@ -477,7 +498,7 @@ def list_movies():
             'sort_by': sort_by if sort_by != 'date_desc' else '',
             'year': year_filter,
             'rating': rating_filter,
-        })
+        }, index_pagination=True)
 
         return render_template('movies.html',
             movies=movies, years=years,
@@ -573,17 +594,7 @@ def _render_show_details(slug: str, expected_category: str):
         if show.category != expected_category or slug != _public_slug(show):
             return redirect(content_url(show), code=301)
 
-        title_parts = [show.show_name]
-        if show.category == 'movie':
-            if show.year:
-                title_parts.append(f"({show.year})")
-            title_parts.append("Movie details")
-        else:
-            if show.episode_title:
-                title_parts.append(show.episode_title)
-            title_parts.append("Episodes and download")
-
-        page_title = " - ".join(title_parts)
+        page_title = _detail_page_title(show)
 
         if show.overview:
             meta_desc = show.overview[:157].rstrip()

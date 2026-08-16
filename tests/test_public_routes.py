@@ -6,7 +6,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("SITE_BASE_URL", "https://ibox-tv.com")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 
-from tv_app.app import app
+from tv_app.app import _detail_page_title, app
 from tv_app.models import Genre, TVShow, db
 
 
@@ -211,6 +211,15 @@ class PublicRouteTests(unittest.TestCase):
         self.assert_contains(response, '<meta property="og:title"')
         self.assert_contains(response, '<meta name="twitter:card"')
 
+    def test_detail_title_including_brand_is_at_most_sixty_characters(self):
+        show = TVShow(
+            show_name="Magical Girl Lyrical Nanoha Exceeds Gun Blaze Vengeance",
+            category="anime",
+        )
+        title = _detail_page_title(show)
+
+        self.assertLessEqual(len(f"{title} | iBOX TV"), 60)
+
     def test_detail_renders_enrichment_and_contextual_internal_links(self):
         response = self.client.get("/tv/101-the-ark")
         body = response.get_data(as_text=True)
@@ -249,6 +258,29 @@ class PublicRouteTests(unittest.TestCase):
         self.assert_contains(search, '<meta name="robots" content="noindex,follow">')
         self.assert_contains(filtered, '<meta name="robots" content="noindex,follow">')
 
+    def test_clean_catalogue_pagination_is_indexable_and_self_canonical(self):
+        with app.app_context():
+            for index in range(17):
+                db.session.add(
+                    TVShow(
+                        tmdb_id=1000 + index,
+                        message_id=9000 + index,
+                        show_name=f"Catalogue Show {index}",
+                        episode_title="Season 1",
+                        download_link=f"https://t.me/example?start=catalogue-{index}",
+                        overview="A complete catalogue entry with a useful overview for visitors.",
+                        poster_path=f"https://image.tmdb.org/t/p/w500/catalogue-{index}.jpg",
+                        category="tv",
+                        content_hash=f"catalogue-{index}",
+                        slug=f"catalogue-show-{index}",
+                    )
+                )
+            db.session.commit()
+
+        response = self.client.get("/?page=2")
+        self.assert_contains(response, '<meta name="robots" content="index,follow">')
+        self.assert_contains(response, '<link rel="canonical" href="https://ibox-tv.com/?page=2">')
+
     def test_sitemap_index_is_segmented_by_category(self):
         response = self.client.get("/sitemap.xml")
         self.assertEqual(response.status_code, 200)
@@ -263,6 +295,8 @@ class PublicRouteTests(unittest.TestCase):
         self.assertEqual(self.client.get("/about").status_code, 200)
         self.assertEqual(self.client.get("/static/site.webmanifest").status_code, 200)
         self.assertEqual(self.client.get("/favicon.ico").status_code, 200)
+        self.assertEqual(self.client.get("/static/style.min.css").status_code, 200)
+        self.assertEqual(self.client.get("/static/script.min.js").status_code, 200)
 
     def test_google_auto_ads_is_restored_without_ezoic_page_code(self):
         body = self.client.get("/").get_data(as_text=True)
@@ -294,6 +328,10 @@ class PublicRouteTests(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
         self.assertEqual(response.headers["Referrer-Policy"], "strict-origin-when-cross-origin")
+        self.assertEqual(
+            response.headers["Strict-Transport-Security"],
+            "max-age=31536000; includeSubDomains",
+        )
 
 
 if __name__ == "__main__":
