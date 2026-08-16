@@ -83,6 +83,16 @@
 </section>
 {% endif %}
 
+{% if genre_hubs %}
+<section class="shell genre-discovery" data-reveal>
+    <div class="section-heading compact-heading">
+        <div class="section-title-group"><span class="section-index">Browse</span><h2>Explore by genre</h2></div>
+    </div>
+    {% set category_key = site_mode %}
+    {% include "_genre_hubs.html" %}
+</section>
+{% endif %}
+
 <section class="shell content-section" data-reveal>
     <div class="section-heading">
         <div class="section-title-group"><span class="section-index">01 / Trending</span><h2>Popular right now</h2></div>
@@ -104,12 +114,9 @@
 </section>
 {% endif %}
 
-{% if shows.pages > 1 %}
-<nav class="pagination shell" aria-label="Pagination">
-    {% if shows.has_prev %}<a href="{{ category_home_url(site_mode, page=shows.prev_num, search=search_query) }}">&larr; Previous</a>{% endif %}
-    <span>Page {{ shows.page }} of {{ shows.pages }}</span>
-    {% if shows.has_next %}<a href="{{ category_home_url(site_mode, page=shows.next_num, search=search_query) }}">Next &rarr;</a>{% endif %}
-</nav>
-{% endif %}
+<div class="shell">
+    {% set page_obj = shows %}
+    {% include "_pagination.html" %}
+</div>
 
 {% endblock %}

@@ -1,0 +1,18 @@
+{% if page_obj.pages > 1 %}
+<nav class="pagination" aria-label="Pagination">
+    {% if page_obj.has_prev %}<a class="pagination-direction" href="{{ pagination_url(page_obj.prev_num) }}">&larr; Previous</a>{% endif %}
+    <div class="pagination-pages">
+        {% set state = namespace(previous=0) %}
+        {% for number in pagination_numbers %}
+            {% if state.previous and number > state.previous + 1 %}<span aria-hidden="true">&hellip;</span>{% endif %}
+            {% if number == page_obj.page %}
+            <span class="pagination-current" aria-current="page">{{ number }}</span>
+            {% else %}
+            <a href="{{ pagination_url(number) }}" aria-label="Page {{ number }}">{{ number }}</a>
+            {% endif %}
+            {% set state.previous = number %}
+        {% endfor %}
+    </div>
+    {% if page_obj.has_next %}<a class="pagination-direction" href="{{ pagination_url(page_obj.next_num) }}">Next &rarr;</a>{% endif %}
+</nav>
+{% endif %}

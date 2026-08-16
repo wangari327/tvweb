@@ -18,7 +18,7 @@ from redis import Redis
 from werkzeug.exceptions import NotFound
 
 # UPDATED: Added SkippedFile import
-from .models import db, TVShow, Genre, SkippedFile
+from .models import db, TVShow, Genre, SkippedFile, show_genres
 
 load_dotenv()
 
@@ -42,9 +42,18 @@ LEGACY_SITE_HOSTS = {
 SITEMAP_PAGE_SIZE = 25000
 
 CATEGORY_CONFIG = {
-    'tv': {'db': 'tv', 'label': 'TV shows', 'detail_endpoint': 'tv_detail', 'home_endpoint': 'index'},
-    'anime': {'db': 'anime', 'label': 'Anime', 'detail_endpoint': 'anime_detail', 'home_endpoint': 'anime_index'},
-    'movies': {'db': 'movie', 'label': 'Movies', 'detail_endpoint': 'movie_detail', 'home_endpoint': 'list_movies'},
+    'tv': {
+        'db': 'tv', 'label': 'TV shows', 'detail_endpoint': 'tv_detail',
+        'home_endpoint': 'index', 'genre_endpoint': 'tv_genre',
+    },
+    'anime': {
+        'db': 'anime', 'label': 'Anime', 'detail_endpoint': 'anime_detail',
+        'home_endpoint': 'anime_index', 'genre_endpoint': 'anime_genre',
+    },
+    'movies': {
+        'db': 'movie', 'label': 'Movies', 'detail_endpoint': 'movie_detail',
+        'home_endpoint': 'list_movies', 'genre_endpoint': 'movie_genre',
+    },
 }
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -71,6 +80,10 @@ def _primary_url_for(endpoint: str, **values) -> str:
 
 def _compact_params(values):
     return {key: value for key, value in values.items() if value not in (None, '')}
+
+
+def _slugify_component(value: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '-', (value or '').lower()).strip('-')
 
 
 def _public_query(category: str):
@@ -142,6 +155,46 @@ def category_browse_url(category: str, external: bool = False, **params) -> str:
     return url_for(endpoint, **_compact_params(params))
 
 
+def genre_url(category: str, genre, external: bool = False, **params) -> str:
+    config = CATEGORY_CONFIG.get(category, CATEGORY_CONFIG['tv'])
+    genre_name = genre.name if isinstance(genre, Genre) else str(genre)
+    values = {'genre_slug': _slugify_component(genre_name), **_compact_params(params)}
+    if external:
+        return _primary_url_for(config['genre_endpoint'], **values)
+    return url_for(config['genre_endpoint'], **values)
+
+
+def _popular_genres(category: str, limit: int = 12):
+    return (
+        db.session.query(Genre, func.count(show_genres.c.tvshow_id).label('title_count'))
+        .join(show_genres, show_genres.c.genre_id == Genre.id)
+        .join(TVShow, TVShow.id == show_genres.c.tvshow_id)
+        .filter(TVShow.category == category, TVShow.download_link.isnot(None))
+        .group_by(Genre.id)
+        .order_by(func.count(show_genres.c.tvshow_id).desc(), Genre.name.asc())
+        .limit(limit)
+        .all()
+    )
+
+
+def _pagination_numbers(page_obj, radius: int = 2):
+    if page_obj.pages <= 1:
+        return []
+    candidates = {1, page_obj.pages}
+    candidates.update(range(max(1, page_obj.page - radius), min(page_obj.pages, page_obj.page + radius) + 1))
+    return sorted(candidates)
+
+
+def pagination_url(page: int) -> str:
+    values = request.args.to_dict(flat=True)
+    values.update(request.view_args or {})
+    if page > 1:
+        values['page'] = page
+    else:
+        values.pop('page', None)
+    return url_for(request.endpoint, **values)
+
+
 @app.before_request
 def enforce_primary_host():
     """Collapse historic category subdomains onto the canonical domain."""
@@ -176,6 +229,8 @@ def inject_globals():
         'content_url': content_url,
         'category_home_url': category_home_url,
         'category_browse_url': category_browse_url,
+        'genre_url': genre_url,
+        'pagination_url': pagination_url,
         'site_base_url': SITE_BASE_URL,
     }
 
@@ -184,7 +239,7 @@ def get_trending_shows(limit: int = 6, category: str = 'tv'):
     with app.app_context():
         target_cat = 'movie' if category == 'movies' else category
         return _public_query(target_cat).order_by(
-            TVShow.clicks.desc(), TVShow.updated_at.desc()
+            TVShow.clicks.desc(), TVShow.availability_updated_at.desc()
         ).limit(limit).all()
 
 def count_search_results(category: str, query_str: str) -> int:
@@ -203,11 +258,18 @@ def count_search_results(category: str, query_str: str) -> int:
     except Exception:
         return 0
 
-def _page_urls(base_endpoint: str, page_obj, extra_params=None):
+def _page_urls(
+    base_endpoint: str,
+    page_obj,
+    extra_params=None,
+    path_params=None,
+    index_pagination: bool = False,
+):
     extra_params = _compact_params(extra_params or {})
+    path_params = _compact_params(path_params or {})
 
     def _u(p):
-        params = dict(extra_params)
+        params = {**path_params, **extra_params}
         if p > 1:
             params['page'] = p
         return _primary_url_for(base_endpoint, **params)
@@ -215,7 +277,8 @@ def _page_urls(base_endpoint: str, page_obj, extra_params=None):
     prev_url = _u(page_obj.prev_num) if page_obj.has_prev else None
     next_url = _u(page_obj.next_num) if page_obj.has_next else None
     canonical_url = _u(page_obj.page)
-    meta_robots = "index,follow" if page_obj.page == 1 and not extra_params else "noindex,follow"
+    should_index = not extra_params and (page_obj.page == 1 or index_pagination)
+    meta_robots = "index,follow" if should_index else "noindex,follow"
     return canonical_url, prev_url, next_url, meta_robots
 
 @app.template_filter('hostonly')
@@ -241,7 +304,7 @@ def _render_index(mode: str, endpoint: str):
         try:
             shows = base_query.filter(
                 TVShow.show_name.ilike(f'%{search_query}%')
-            ).order_by(TVShow.updated_at.desc()).paginate(
+            ).order_by(TVShow.availability_updated_at.desc()).paginate(
                 page=page, per_page=per_page, error_out=False
             )
             if not shows.items:
@@ -259,7 +322,7 @@ def _render_index(mode: str, endpoint: str):
         result_counts['anime'] = count_search_results('anime', search_query)
         result_counts['movies'] = count_search_results('movie', search_query)
     else:
-        shows = base_query.order_by(TVShow.updated_at.desc()).paginate(
+        shows = base_query.order_by(TVShow.availability_updated_at.desc()).paginate(
             page=page, per_page=per_page, error_out=False
         )
         page_title = "Latest anime" if mode == 'anime' else "Latest TV shows"
@@ -270,6 +333,8 @@ def _render_index(mode: str, endpoint: str):
 
     return render_template('index.html',
         shows=shows, search_query=search_query, trending_shows=trending_shows,
+        genre_hubs=_popular_genres(CATEGORY_CONFIG[mode]['db']),
+        pagination_numbers=_pagination_numbers(shows),
         message=message, title=page_title, site_mode=mode,
         result_counts=result_counts,
         canonical_url=canonical_url, prev_url=prev_url, next_url=next_url, meta_robots=meta_robots
@@ -317,9 +382,9 @@ def _render_browse(category: str, endpoint: str):
         elif sort_by == 'name_desc':
             query = query.order_by(TVShow.show_name.desc())
         elif sort_by == 'date_asc':
-            query = query.order_by(TVShow.created_at.asc())
+            query = query.order_by(TVShow.availability_updated_at.asc())
         elif sort_by == 'date_desc':
-            query = query.order_by(TVShow.created_at.desc())
+            query = query.order_by(TVShow.availability_updated_at.desc())
         elif sort_by == 'rating_asc':
             query = query.order_by(TVShow.rating.asc().nullslast())
         elif sort_by == 'rating_desc':
@@ -346,6 +411,8 @@ def _render_browse(category: str, endpoint: str):
         })
         return render_template('shows.html',
             shows=shows_paginated, genres=all_genres, ratings=possible_ratings, years=years,
+            genre_hubs=_popular_genres(category),
+            pagination_numbers=_pagination_numbers(shows_paginated),
             selected_genre=genre_filter, selected_rating=rating_filter, selected_year=year_filter,
             current_sort_by=sort_by,
             title="Browse anime" if category == 'anime' else "Browse TV shows",
@@ -394,11 +461,11 @@ def list_movies():
             elif sort_by == 'rating_desc':
                 query = query.order_by(TVShow.rating.desc().nullslast())
             elif sort_by == 'date_asc':
-                query = query.order_by(TVShow.updated_at.asc())
+                query = query.order_by(TVShow.availability_updated_at.asc())
             else:
-                query = query.order_by(TVShow.created_at.desc())
+                query = query.order_by(TVShow.availability_updated_at.desc())
         else:
-            query = query.order_by(TVShow.updated_at.desc())
+            query = query.order_by(TVShow.availability_updated_at.desc())
 
         movies = query.paginate(page=page, per_page=per_page, error_out=False)
 
@@ -414,6 +481,8 @@ def list_movies():
 
         return render_template('movies.html',
             movies=movies, years=years,
+            genre_hubs=_popular_genres('movie'),
+            pagination_numbers=_pagination_numbers(movies),
             search_q=search_q, current_sort=sort_by, selected_year=year_filter, selected_rating=rating_filter,
             title="Browse Movies",
             canonical_url=canonical_url, prev_url=prev_url, next_url=next_url, meta_robots=meta_robots
@@ -421,6 +490,74 @@ def list_movies():
     except Exception as e:
         logger.error(f"Error in list_movies: {e}")
         return render_template('500.html'), 500
+
+
+def _genre_from_slug(genre_slug: str):
+    for genre in Genre.query.order_by(Genre.name.asc()).all():
+        if _slugify_component(genre.name) == genre_slug:
+            return genre
+    return None
+
+
+def _render_genre_hub(category_key: str, genre_slug: str):
+    config = CATEGORY_CONFIG[category_key]
+    genre = _genre_from_slug(genre_slug)
+    if genre is None:
+        abort(404)
+
+    page = max(request.args.get('page', 1, type=int), 1)
+    shows = (
+        _indexable_query(config['db'])
+        .join(TVShow.genres)
+        .filter(Genre.id == genre.id)
+        .order_by(
+            TVShow.clicks.desc(),
+            TVShow.rating.desc().nullslast(),
+            TVShow.availability_updated_at.desc().nullslast(),
+        )
+        .paginate(page=page, per_page=30, error_out=False)
+    )
+    if page > 1 and not shows.items:
+        abort(404)
+
+    canonical_url, prev_url, next_url, meta_robots = _page_urls(
+        config['genre_endpoint'],
+        shows,
+        path_params={'genre_slug': genre_slug},
+        index_pagination=True,
+    )
+    page_title = f"{genre.name} {config['label']}"
+    if page > 1:
+        page_title += f" - Page {page}"
+    return render_template(
+        'genre.html',
+        genre=genre,
+        shows=shows,
+        category_key=category_key,
+        category_label=config['label'],
+        title=page_title,
+        canonical_url=canonical_url,
+        prev_url=prev_url,
+        next_url=next_url,
+        meta_robots=meta_robots,
+        pagination_numbers=_pagination_numbers(shows),
+        genre_hubs=_popular_genres(config['db']),
+    )
+
+
+@app.route('/tv/genre/<genre_slug>')
+def tv_genre(genre_slug):
+    return _render_genre_hub('tv', genre_slug)
+
+
+@app.route('/anime/genre/<genre_slug>')
+def anime_genre(genre_slug):
+    return _render_genre_hub('anime', genre_slug)
+
+
+@app.route('/movies/genre/<genre_slug>')
+def movie_genre(genre_slug):
+    return _render_genre_hub('movies', genre_slug)
 
 def _render_show_details(slug: str, expected_category: str):
     try:
@@ -456,21 +593,56 @@ def _render_show_details(slug: str, expected_category: str):
             meta_desc = f"View availability, details, and the latest update for {show.show_name} on iBOX TV."
         meta_desc = meta_desc[:160]
 
-        related_shows = _public_query(show.category).filter(
-            TVShow.id != show.id
-        ).order_by(TVShow.updated_at.desc()).limit(6).all()
+        genre_ids = [genre.id for genre in show.genres]
+        if genre_ids:
+            shared_genres = (
+                db.session.query(
+                    show_genres.c.tvshow_id.label('show_id'),
+                    func.count(show_genres.c.genre_id).label('shared_count'),
+                )
+                .filter(show_genres.c.genre_id.in_(genre_ids))
+                .group_by(show_genres.c.tvshow_id)
+                .subquery()
+            )
+            related_shows = (
+                _indexable_query(show.category)
+                .join(shared_genres, shared_genres.c.show_id == TVShow.id)
+                .filter(TVShow.id != show.id)
+                .order_by(
+                    shared_genres.c.shared_count.desc(),
+                    TVShow.rating.desc().nullslast(),
+                    TVShow.clicks.desc(),
+                )
+                .limit(10)
+                .all()
+            )
+        else:
+            related_shows = (
+                _indexable_query(show.category)
+                .filter(TVShow.id != show.id)
+                .order_by(
+                    TVShow.clicks.desc(),
+                    TVShow.rating.desc().nullslast(),
+                    TVShow.availability_updated_at.desc().nullslast(),
+                )
+                .limit(10)
+                .all()
+            )
 
         return render_template('show_details.html',
             show=show, title=page_title, meta_description=meta_desc,
             canonical_url=content_url(show, external=True),
             meta_robots="index,follow" if _is_indexable(show) else "noindex,follow",
             related_shows=related_shows,
+            availability_date=show.availability_updated_at or show.updated_at or show.created_at,
+            category_key=_category_key_for_show(show),
+            category_label='Movies' if show.category == 'movie' else ('Anime' if show.category == 'anime' else 'TV'),
         )
     except Exception as e:
         db.session.rollback()
         if isinstance(e, NotFound):
             raise
-        logger.error(f"Error in show details slug={slug}: {e}")
+        logger.exception(f"Error in show details slug={slug}: {e}")
         return render_template('500.html', title="Server Error",
                                meta_description="An error occurred viewing show details.",
                                meta_robots="noindex,nofollow"), 500
@@ -662,6 +834,9 @@ def core_sitemap():
         (_primary_url_for('about'), 'monthly'),
         (_primary_url_for('privacy_policy'), 'yearly'),
     ]
+    for category_key, config in CATEGORY_CONFIG.items():
+        for genre, _title_count in _popular_genres(config['db'], limit=100):
+            urls.append((genre_url(category_key, genre, external=True), 'weekly'))
     entries = "\n".join(
         f"  <url><loc>{xml_escape(url)}</loc><changefreq>{frequency}</changefreq></url>"
         for url, frequency in urls
@@ -686,14 +861,14 @@ def category_sitemap(category, page):
         abort(404)
 
     rows = query.with_entities(
-        TVShow.tmdb_id, TVShow.show_name, TVShow.slug, TVShow.updated_at, TVShow.created_at
-    ).order_by(TVShow.updated_at.desc()).offset(
+        TVShow.id, TVShow.tmdb_id, TVShow.show_name, TVShow.slug, TVShow.updated_at, TVShow.created_at
+    ).order_by(TVShow.id.asc()).offset(
         (page - 1) * SITEMAP_PAGE_SIZE
     ).limit(SITEMAP_PAGE_SIZE).all()
 
     endpoint = config['detail_endpoint']
     entries = []
-    for tmdb_id, show_name, stored_slug, updated_at, created_at in rows:
+    for _show_id, tmdb_id, show_name, stored_slug, updated_at, created_at in rows:
         title_slug = re.sub(r'[^a-z0-9]+', '-', (show_name or '').lower()).strip('-')
         public_slug = f"{tmdb_id}-{title_slug}" if tmdb_id and title_slug else stored_slug
         loc = _primary_url_for(endpoint, slug=public_slug)

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_components.html" import poster_card with context %}
+
+{% block title %}{{ title }}{% endblock %}
+{% block meta_description %}Explore {{ genre.name }} {{ category_label|lower }} currently available through iBOX TV, with ratings, artwork, and title details.{% endblock %}
+
+{% block content %}
+<section class="page-intro shell genre-intro">
+    <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <a href="{{ url_for('index') }}">Home</a><span>/</span>
+        <a href="{{ category_home_url(category_key) }}">{{ category_label }}</a><span>/</span>
+        <span aria-current="page">{{ genre.name }}</span>
+    </nav>
+    <span class="eyebrow">Genre collection</span>
+    <h1>{{ genre.name }} {{ category_label }}</h1>
+    <p>Browse {{ shows.total }} currently available {{ genre.name|lower }} titles, then open a listing for its latest availability, cast, trailer, and related picks.</p>
+    {% include "_genre_hubs.html" %}
+</section>
+
+<section class="shell content-section genre-results">
+    <div class="section-heading compact-heading">
+        <div><span class="eyebrow">Collection</span><h2>{{ shows.total }} titles</h2></div>
+        <a class="text-link" href="{{ category_home_url(category_key) }}">Back to {{ category_label|lower }}</a>
+    </div>
+    {% if shows.items %}
+    <div class="media-grid catalogue-grid">
+        {% for show in shows.items %}{{ poster_card(show) }}{% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state"><h3>No titles available</h3><p>Try another genre collection.</p></div>
+    {% endif %}
+    {% set page_obj = shows %}
+    {% include "_pagination.html" %}
+</section>
+{% endblock %}
+
+{% block scripts_extra %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CollectionPage",
+  "name": {{ title|tojson }},
+  "url": {{ canonical_url|tojson }},
+  "mainEntity": {
+    "@type": "ItemList",
+    "itemListElement": [
+      {% for show in shows.items %}{
+        "@type": "ListItem",
+        "position": {{ loop.index + ((shows.page - 1) * shows.per_page) }},
+        "name": {{ show.show_name|tojson }},
+        "url": {{ content_url(show, external=true)|tojson }}
+      }{% if not loop.last %},{% endif %}{% endfor %}
+    ]
+  }
+}
+</script>
+{% endblock %}

@@ -2,19 +2,27 @@
 {% from "_components.html" import poster_card with context %}
 
 {% block title %}{{ title }}{% endblock %}
-{% block meta_description %}Browse currently available movies by year and rating on iBOX TV.{% endblock %}
+{% block meta_description %}Browse currently available movies by genre, year, and rating on iBOX TV.{% endblock %}
 
 {% block content %}
 <section class="page-intro shell movie-intro">
     <span class="eyebrow">Movie library</span>
-    <h1>Find tonight’s movie.</h1>
+    <h1>Find tonight&rsquo;s movie.</h1>
     <p>Search the available collection, compare ratings, and continue to the matching Telegram result.</p>
     <form class="hero-search page-search" action="{{ url_for('list_movies') }}" method="get" role="search">
         <label class="sr-only" for="movie-search">Search movies</label>
-        <input id="movie-search" type="search" name="q" value="{{ search_q }}" placeholder="Search by movie title…">
+        <input id="movie-search" type="search" name="q" value="{{ search_q }}" placeholder="Search by movie title&hellip;">
         <button class="button button-primary" type="submit">Search</button>
     </form>
 </section>
+
+{% if genre_hubs %}
+<section class="shell genre-discovery">
+    <div class="section-heading compact-heading"><div><span class="eyebrow">Collections</span><h2>Browse by genre</h2></div></div>
+    {% set category_key = 'movies' %}
+    {% include "_genre_hubs.html" %}
+</section>
+{% endif %}
 
 <section class="shell catalogue-layout">
     <form method="get" action="{{ url_for('list_movies') }}" class="filter-panel">
@@ -34,10 +42,10 @@
         </label>
         <label>Sort by
             <select name="sort_by">
-                <option value="date_desc" {% if current_sort == 'date_desc' %}selected{% endif %}>Recently added</option>
-                <option value="date_asc" {% if current_sort == 'date_asc' %}selected{% endif %}>Oldest added</option>
+                <option value="date_desc" {% if current_sort == 'date_desc' %}selected{% endif %}>Recently available</option>
+                <option value="date_asc" {% if current_sort == 'date_asc' %}selected{% endif %}>Oldest available</option>
                 <option value="rating_desc" {% if current_sort == 'rating_desc' %}selected{% endif %}>Highest rated</option>
-                <option value="name_asc" {% if current_sort == 'name_asc' %}selected{% endif %}>Title A–Z</option>
+                <option value="name_asc" {% if current_sort == 'name_asc' %}selected{% endif %}>Title A&ndash;Z</option>
             </select>
         </label>
         <button class="button button-primary" type="submit">Apply filters</button>
@@ -45,7 +53,7 @@
 
     <div class="catalogue-results">
         <div class="section-heading compact-heading">
-            <div><span class="eyebrow">Results</span><h2>{% if search_q %}“{{ search_q }}”{% else %}{{ movies.total }} movies{% endif %}</h2></div>
+            <div><span class="eyebrow">Results</span><h2>{% if search_q %}&ldquo;{{ search_q }}&rdquo;{% else %}{{ movies.total }} movies{% endif %}</h2></div>
             {% if search_q %}<a class="text-link" href="{{ url_for('list_movies') }}">Clear search</a>{% endif %}
         </div>
         {% if movies.items %}
@@ -53,16 +61,11 @@
             {% for movie in movies.items %}{{ poster_card(movie) }}{% endfor %}
         </div>
         {% else %}
-        <div class="empty-state"><span aria-hidden="true">⌕</span><h3>No movies found</h3><p>Try a different title or fewer filters.</p></div>
+        <div class="empty-state"><span aria-hidden="true">&#8981;</span><h3>No movies found</h3><p>Try a different title or fewer filters.</p></div>
         {% endif %}
 
-        {% if movies.pages > 1 %}
-        <nav class="pagination" aria-label="Pagination">
-            {% if movies.has_prev %}<a href="{{ url_for('list_movies', page=movies.prev_num, q=search_q, sort_by=current_sort, year=selected_year, rating=selected_rating) }}">← Previous</a>{% endif %}
-            <span>Page {{ movies.page }} of {{ movies.pages }}</span>
-            {% if movies.has_next %}<a href="{{ url_for('list_movies', page=movies.next_num, q=search_q, sort_by=current_sort, year=selected_year, rating=selected_rating) }}">Next →</a>{% endif %}
-        </nav>
-        {% endif %}
+        {% set page_obj = movies %}
+        {% include "_pagination.html" %}
     </div>
 </section>
 {% endblock %}

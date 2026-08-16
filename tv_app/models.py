@@ -22,6 +22,7 @@ show_genres = db.Table(
     db.Column("tvshow_id", db.Integer, db.ForeignKey("tv_shows.id"), primary_key=True),
     db.Column("genre_id", db.Integer, db.ForeignKey("genres.id"), primary_key=True),
 )
+Index("ix_show_genres_genre_tvshow", show_genres.c.genre_id, show_genres.c.tvshow_id)
 
 class Genre(db.Model):
     __tablename__ = "genres"
@@ -50,11 +51,26 @@ class TVShow(db.Model):
     vote_average = db.Column(db.Float)
     poster_path = db.Column(db.Text, default=None)
 
+    # Rich TMDB metadata cached for useful detail pages. Keeping this data in
+    # the catalogue avoids an external API call on every visitor request.
+    tagline = db.Column(db.Text, default=None)
+    runtime_minutes = db.Column(db.Integer, default=None)
+    number_of_seasons = db.Column(db.Integer, default=None)
+    release_status = db.Column(db.String(50), default=None)
+    original_language = db.Column(db.String(12), default=None)
+    cast_data = db.Column(db.JSON, default=None)
+    official_trailer_key = db.Column(db.String(64), default=None)
+    official_trailer_name = db.Column(db.String(255), default=None)
+    official_trailer_published_at = db.Column(db.String(40), default=None)
+    metadata_status = db.Column(db.String(20), default=None, index=True)
+    metadata_updated_at = db.Column(db.DateTime, default=None, index=True)
+
     # Required by homepage/trending
     clicks = db.Column(db.Integer, nullable=False, default=0, server_default="0")
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    availability_updated_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
     content_hash = db.Column(db.String(64), nullable=False, index=True)
 

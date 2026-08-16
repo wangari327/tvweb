@@ -1,12 +1,13 @@
 import os
 import unittest
+from datetime import datetime
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("SITE_BASE_URL", "https://ibox-tv.com")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 
 from tv_app.app import app
-from tv_app.models import TVShow, db
+from tv_app.models import Genre, TVShow, db
 
 
 class PublicRouteTests(unittest.TestCase):
@@ -76,6 +77,70 @@ class PublicRouteTests(unittest.TestCase):
                     ),
                 ]
             )
+            db.session.add_all(
+                [
+                    TVShow(
+                        tmdb_id=505,
+                        message_id=5005,
+                        show_name="Deep Horizon",
+                        episode_title="Season 1 Complete",
+                        download_link="https://t.me/example?start=deep-horizon",
+                        overview="Explorers cross a distant system after receiving a mysterious signal.",
+                        poster_path="https://image.tmdb.org/t/p/w500/deep-horizon.jpg",
+                        year=2024,
+                        rating=7.7,
+                        category="tv",
+                        content_hash="tv-505",
+                        slug="deep-horizon",
+                    ),
+                    TVShow(
+                        tmdb_id=606,
+                        message_id=6006,
+                        show_name="Quiet Garden",
+                        episode_title="Season 3",
+                        download_link="https://t.me/example?start=quiet-garden",
+                        overview="A family restores a garden and rebuilds their life together.",
+                        poster_path="https://image.tmdb.org/t/p/w500/quiet-garden.jpg",
+                        year=2024,
+                        rating=9.2,
+                        category="tv",
+                        content_hash="tv-606",
+                        slug="quiet-garden",
+                    ),
+                ]
+            )
+            db.session.flush()
+            science_fiction = Genre(name="Science Fiction")
+            drama = Genre(name="Drama")
+            romance = Genre(name="Romance")
+            action = Genre(name="Action")
+            db.session.add_all([science_fiction, drama, romance, action])
+            db.session.flush()
+
+            ark = TVShow.query.filter_by(tmdb_id=101, category="tv").first()
+            ark.clicks = 10
+            ark.availability_updated_at = datetime(2026, 8, 15)
+            ark.tagline = "Humanity needs a second chance."
+            ark.runtime_minutes = 45
+            ark.number_of_seasons = 2
+            ark.release_status = "Returning Series"
+            ark.original_language = "en"
+            ark.cast_data = [
+                {
+                    "id": 1,
+                    "name": "Avery Stone",
+                    "character": "Commander Lane",
+                    "profile_url": "https://image.tmdb.org/t/p/w185/avery.jpg",
+                }
+            ]
+            ark.official_trailer_key = "AbCdEf12345"
+            ark.official_trailer_name = "The Ark Official Trailer"
+            ark.official_trailer_published_at = "2023-01-03T12:00:00Z"
+            ark.genres = [science_fiction, drama]
+            TVShow.query.filter_by(tmdb_id=505).first().genres = [science_fiction]
+            TVShow.query.filter_by(tmdb_id=606).first().genres = [romance]
+            TVShow.query.filter_by(tmdb_id=202).first().genres = [action]
+            TVShow.query.filter_by(tmdb_id=303).first().genres = [action]
             db.session.commit()
 
     def assert_contains(self, response, text):
@@ -146,6 +211,29 @@ class PublicRouteTests(unittest.TestCase):
         self.assert_contains(response, '<meta property="og:title"')
         self.assert_contains(response, '<meta name="twitter:card"')
 
+    def test_detail_renders_enrichment_and_contextual_internal_links(self):
+        response = self.client.get("/tv/101-the-ark")
+        body = response.get_data(as_text=True)
+        self.assert_contains(response, "/tv/genre/science-fiction")
+        self.assert_contains(response, "Official trailer")
+        self.assert_contains(response, "youtube-nocookie.com/embed/AbCdEf12345")
+        self.assert_contains(response, "Avery Stone")
+        self.assert_contains(response, "Availability snapshot")
+        self.assert_contains(response, '"@type": "BreadcrumbList"')
+        self.assertIn("Deep Horizon", body)
+        self.assertNotIn("Quiet Garden", body)
+
+    def test_genre_hub_is_crawlable_indexable_and_in_core_sitemap(self):
+        response = self.client.get("/tv/genre/science-fiction")
+        self.assertEqual(response.status_code, 200)
+        self.assert_contains(response, '<meta name="robots" content="index,follow">')
+        self.assert_contains(response, '<link rel="canonical" href="https://ibox-tv.com/tv/genre/science-fiction">')
+        self.assert_contains(response, "The Ark")
+        self.assert_contains(response, "Deep Horizon")
+        self.assert_contains(response, '"@type": "CollectionPage"')
+        sitemap = self.client.get("/sitemaps/core.xml").get_data(as_text=True)
+        self.assertIn("https://ibox-tv.com/tv/genre/science-fiction", sitemap)
+
     def test_incomplete_detail_is_noindex_and_absent_from_sitemap(self):
         response = self.client.get("/tv/404-incomplete-listing")
         self.assert_contains(response, '<meta name="robots" content="noindex,follow">')
@@ -196,11 +284,11 @@ class PublicRouteTests(unittest.TestCase):
         with app.app_context():
             show = TVShow.query.filter_by(slug="the-ark").first()
             show_id = show.id
-            self.assertEqual(show.clicks, 0)
+            starting_clicks = show.clicks
         response = self.client.get(f"/download/{show_id}")
         self.assertEqual(response.status_code, 302)
         with app.app_context():
-            self.assertEqual(TVShow.query.get(show_id).clicks, 1)
+            self.assertEqual(TVShow.query.get(show_id).clicks, starting_clicks + 1)
 
     def test_security_headers_are_added(self):
         response = self.client.get("/")

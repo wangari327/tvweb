@@ -19,7 +19,7 @@
     <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
     <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=2.1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=2.2.0">
 
     <script src="https://www.termsfeed.com/public/cookie-consent/4.2.0/cookie-consent.js" charset="UTF-8"></script>
     <script>
@@ -109,7 +109,7 @@
                 <button type="button" id="open_preferences_center">Cookie preferences</button>
             </div>
         </div>
-        <div class="shell footer-bottom">&copy; {{ now().year }} iBOX TV</div>
+        <div class="shell footer-bottom"><span>&copy; {{ now().year }} iBOX TV</span><a href="https://www.themoviedb.org" target="_blank" rel="noopener">Metadata by TMDB</a></div>
     </footer>
 
     <script src="{{ url_for('static', filename='script.js') }}?v=2.1.0" defer></script>

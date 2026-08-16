@@ -16,12 +16,14 @@
 {% endblock %}
 
 {% block content %}
+{% set category_key = 'movies' if show.category == 'movie' else show.category %}
+{% set category_label = 'Movies' if show.category == 'movie' else ('Anime' if show.category == 'anime' else 'TV') %}
 <article class="detail-page">
     {% if show.poster_path %}<div class="detail-backdrop" aria-hidden="true"><img src="{{ show.poster_path }}" alt=""></div>{% endif %}
     <div class="shell detail-shell">
         <nav class="breadcrumbs" aria-label="Breadcrumb">
             <a href="{{ url_for('index') }}">Home</a><span>/</span>
-            <a href="{{ category_home_url('movies' if show.category == 'movie' else show.category) }}">{{ 'Movies' if show.category == 'movie' else ('Anime' if show.category == 'anime' else 'TV') }}</a><span>/</span>
+            <a href="{{ category_home_url(category_key) }}">{{ category_label }}</a><span>/</span>
             <span aria-current="page">{{ show.show_name }}</span>
         </nav>
 
@@ -33,12 +35,15 @@
             <div class="detail-copy">
                 <span class="eyebrow">{{ 'Movie' if show.category == 'movie' else ('Anime' if show.category == 'anime' else 'TV series') }}</span>
                 <h1>{{ show.show_name }}</h1>
+                {% if show.tagline %}<p class="detail-tagline">&ldquo;{{ show.tagline }}&rdquo;</p>{% endif %}
                 {% if show.episode_title %}<p class="episode-update">{{ show.episode_title }}</p>{% endif %}
 
                 <div class="meta-chips" aria-label="Title information">
                     {% if show.year %}<span>{{ show.year }}</span>{% endif %}
                     {% if show.rating or show.vote_average %}<span class="score"><b aria-hidden="true">&#9733;</b> {{ "%.1f"|format(show.rating or show.vote_average) }}</span>{% endif %}
-                    {% for genre in show.genres[:3] %}<span>{{ genre.name }}</span>{% endfor %}
+                    {% if show.runtime_minutes %}<span>{{ show.runtime_minutes }} min</span>{% endif %}
+                    {% if show.number_of_seasons %}<span>{{ show.number_of_seasons }} season{{ '' if show.number_of_seasons == 1 else 's' }}</span>{% endif %}
+                    {% for genre in show.genres[:3] %}<a href="{{ genre_url(category_key, genre) }}">{{ genre.name }}</a>{% endfor %}
                 </div>
 
                 {% if show.overview %}<div class="overview"><h2>Overview</h2><p>{{ show.overview }}</p></div>{% endif %}
@@ -46,7 +51,10 @@
                 <div class="availability-card">
                     <div>
                         <span class="availability-dot" aria-hidden="true"></span>
-                        <p><strong>Available now</strong><small>The download flow continues in Telegram.</small></p>
+                        <p>
+                            <strong>{{ show.episode_title or 'Available movie listing' }}</strong>
+                            <small>Catalogue updated <time datetime="{{ availability_date.date().isoformat() }}">{{ availability_date.strftime('%d %B %Y').lstrip('0') if availability_date else 'recently' }}</time></small>
+                        </p>
                     </div>
                     {% if show.download_link %}
                     <a href="{{ url_for('redirect_to_download', show_id=show.id) }}" class="button button-primary button-large" rel="nofollow">Continue to download <span aria-hidden="true">&rarr;</span></a>
@@ -64,9 +72,59 @@
     </div>
 </article>
 
+<section class="shell detail-context content-section">
+    <div class="context-card">
+        <span class="eyebrow">Availability snapshot</span>
+        <h2>What&rsquo;s currently listed</h2>
+        <p>iBOX TV currently lists <strong>{{ show.episode_title or show.show_name }}</strong>{% if show.episode_title %} for {{ show.show_name }}{% endif %}. This catalogue entry was updated on {{ availability_date.strftime('%d %B %Y').lstrip('0') if availability_date else 'a recent catalogue run' }} and continues through the matching Telegram result.</p>
+    </div>
+    <dl class="title-facts">
+        {% if show.release_status %}<div><dt>Status</dt><dd>{{ show.release_status }}</dd></div>{% endif %}
+        {% if show.year %}<div><dt>First released</dt><dd>{{ show.year }}</dd></div>{% endif %}
+        {% if show.runtime_minutes %}<div><dt>{{ 'Runtime' if show.category == 'movie' else 'Episode runtime' }}</dt><dd>{{ show.runtime_minutes }} minutes</dd></div>{% endif %}
+        {% if show.number_of_seasons %}<div><dt>Seasons</dt><dd>{{ show.number_of_seasons }}</dd></div>{% endif %}
+        {% if show.original_language %}<div><dt>Original language</dt><dd>{{ show.original_language|upper }}</dd></div>{% endif %}
+    </dl>
+</section>
+
+{% if show.official_trailer_key or show.cast_data %}
+<section class="shell detail-enrichment content-section google-auto-ads-ignore">
+    {% if show.official_trailer_key %}
+    <div class="trailer-panel">
+        <div class="section-heading compact-heading"><div><span class="eyebrow">Watch</span><h2>Official trailer</h2></div></div>
+        <div class="trailer-frame">
+            <iframe
+                src="https://www.youtube-nocookie.com/embed/{{ show.official_trailer_key }}"
+                title="{{ show.official_trailer_name or ('Official trailer for ' ~ show.show_name) }}"
+                loading="lazy"
+                referrerpolicy="strict-origin-when-cross-origin"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowfullscreen></iframe>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if show.cast_data %}
+    <div class="cast-panel">
+        <div class="section-heading compact-heading"><div><span class="eyebrow">People</span><h2>Featured cast</h2></div></div>
+        <div class="cast-rail">
+            {% for member in show.cast_data %}
+            <article class="cast-card">
+                {% if member.profile_url %}<img src="{{ member.profile_url }}" alt="{{ member.name }}" width="185" height="278" loading="lazy" decoding="async">{% else %}<span class="cast-placeholder" aria-hidden="true">{{ member.name[:1] }}</span>{% endif %}
+                <div><h3>{{ member.name }}</h3>{% if member.character %}<p>{{ member.character }}</p>{% endif %}</div>
+            </article>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</section>
+{% endif %}
+
 {% if related_shows %}
 <section class="shell content-section related-section">
-    <div class="section-heading"><div><span class="eyebrow">More to explore</span><h2>Recently updated</h2></div></div>
+    <div class="section-heading">
+        <div><span class="eyebrow">More to explore</span><h2>More like {{ show.show_name }}</h2>{% if show.genres %}<p class="section-description">Selected from titles sharing {{ show.genres[:2]|map(attribute='name')|join(' and ') }}.</p>{% endif %}</div>
+    </div>
     <div class="media-rail">{% for item in related_shows %}{{ poster_card(item) }}{% endfor %}</div>
 </section>
 {% endif %}
@@ -76,12 +134,38 @@
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
-  "@type": {{ ('Movie' if show.category == 'movie' else 'TVSeries')|tojson }},
-  "name": {{ show.show_name|tojson }},
-  "url": {{ canonical_url|tojson }}{% if show.overview %},
-  "description": {{ show.overview|tojson }}{% endif %}{% if show.poster_path %},
-  "image": {{ show.poster_path|tojson }}{% endif %}{% if show.genres %},
-  "genre": [{% for genre in show.genres %}{{ genre.name|tojson }}{% if not loop.last %}, {% endif %}{% endfor %}]{% endif %}
+  "@graph": [
+    {
+      "@type": {{ ('Movie' if show.category == 'movie' else 'TVSeries')|tojson }},
+      "@id": {{ (canonical_url ~ '#title')|tojson }},
+      "name": {{ show.show_name|tojson }},
+      "url": {{ canonical_url|tojson }}{% if show.overview %},
+      "description": {{ show.overview|tojson }}{% endif %}{% if show.poster_path %},
+      "image": {{ show.poster_path|tojson }}{% endif %}{% if show.year %},
+      "dateCreated": {{ show.year|string|tojson }}{% endif %}{% if show.genres %},
+      "genre": [{% for genre in show.genres %}{{ genre.name|tojson }}{% if not loop.last %}, {% endif %}{% endfor %}]{% endif %}{% if show.runtime_minutes %},
+      "duration": {{ ('PT' ~ show.runtime_minutes ~ 'M')|tojson }}{% endif %}{% if show.number_of_seasons %},
+      "numberOfSeasons": {{ show.number_of_seasons }}{% endif %}{% if show.cast_data %},
+      "actor": [{% for member in show.cast_data %}{"@type":"Person","name":{{ member.name|tojson }}}{% if not loop.last %},{% endif %}{% endfor %}]{% endif %}{% if show.official_trailer_key %},
+      "trailer": {
+        "@type": "VideoObject",
+        "name": {{ (show.official_trailer_name or ('Official trailer for ' ~ show.show_name))|tojson }},
+        "description": {{ ('Official trailer for ' ~ show.show_name)|tojson }},
+        "thumbnailUrl": {{ ('https://i.ytimg.com/vi/' ~ show.official_trailer_key ~ '/hqdefault.jpg')|tojson }},
+        "embedUrl": {{ ('https://www.youtube-nocookie.com/embed/' ~ show.official_trailer_key)|tojson }},
+        "contentUrl": {{ ('https://www.youtube.com/watch?v=' ~ show.official_trailer_key)|tojson }}{% if show.official_trailer_published_at %},
+        "uploadDate": {{ show.official_trailer_published_at|tojson }}{% endif %}
+      }{% endif %}
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {"@type":"ListItem","position":1,"name":"Home","item":{{ site_base_url|tojson }}},
+        {"@type":"ListItem","position":2,"name":{{ category_label|tojson }},"item":{{ category_home_url(category_key, external=true)|tojson }}},
+        {"@type":"ListItem","position":3,"name":{{ show.show_name|tojson }},"item":{{ canonical_url|tojson }}}
+      ]
+    }
+  ]
 }
 </script>
 {% endblock %}

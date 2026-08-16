@@ -21,6 +21,8 @@ from pymongo import MongoClient, DESCENDING
 from sqlalchemy.exc import IntegrityError
 from bson.objectid import ObjectId
 
+from .tmdb_enrichment import apply_enrichment, fetch_tmdb_details
+
 # --- CONFIGURATION ---
 env_path = Path(__file__).resolve().parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
@@ -165,7 +167,8 @@ def parse_telegram_post(post) -> Optional[Dict]:
     except Exception: return None
 
 async def fetch_tmdb_tv_data(show_name: str, search_year: int, search_season: int) -> Optional[Dict]:
-    headers = {"Authorization": f"Bearer {os.environ.get('TMDB_BEARER_TOKEN')}"}
+    token = os.environ.get('TMDB_BEARER_TOKEN')
+    headers = {"Authorization": f"Bearer {token}"}
     async with aiohttp.ClientSession(headers=headers) as session:
         try:
             url = f"{TMDB_BASE_URL}/search/tv?query={quote_plus(show_name)}&language=en-US"
@@ -215,6 +218,8 @@ async def fetch_tmdb_tv_data(show_name: str, search_year: int, search_season: in
 
         if not found: return None
         
+        full_details = await fetch_tmdb_details(session, found["id"], "tv", token) or found
+
         return {
             "tmdb_id": found["id"],
             "show_name_from_tmdb": found["name"],
@@ -223,6 +228,7 @@ async def fetch_tmdb_tv_data(show_name: str, search_year: int, search_season: in
             "vote_average": found.get("vote_average"),
             "year": int(found["first_air_date"][:4]) if found.get("first_air_date") else None,
             "rating": found.get("vote_average"),
+            "details": full_details,
         }
 
 @celery.task(bind=True, retry_backoff=True, max_retries=3)
@@ -277,9 +283,11 @@ def update_tv_shows(self):
                         target_entry.content_hash = c_hash
                         target_entry.created_at = datetime.utcnow()
                         target_entry.updated_at = datetime.utcnow()
+                        target_entry.availability_updated_at = datetime.utcnow()
+                        apply_enrichment(target_entry, tmdb["details"])
                         logger.info(f"♻️ Updated: {tmdb['show_name_from_tmdb']}")
                     else:
-                        db.session.add(TVShow(
+                        new_show = TVShow(
                             tmdb_id=tmdb["tmdb_id"],
                             message_id=p["message_id"],
                             show_name=tmdb["show_name_from_tmdb"],
@@ -293,7 +301,10 @@ def update_tv_shows(self):
                             category=src['type'],
                             content_hash=c_hash,
                             slug=re.sub(r'[^a-z0-9]+', '-', tmdb["show_name_from_tmdb"].lower()).strip('-')
-                        ))
+                        )
+                        db.session.add(new_show)
+                        db.session.flush()
+                        apply_enrichment(new_show, tmdb["details"])
                         logger.info(f"✅ Added: {tmdb['show_name_from_tmdb']}")
                     
                     redis_client.set(processed_key, 1, ex=86400)
@@ -433,6 +444,13 @@ async def resolve_single_movie(file_name: str, doc_id: str, session: aiohttp.Cli
     if not best_match: 
         return {'status': 'no_match', 'file': file_name, 'cleaned': q}
 
+    full_details = await fetch_tmdb_details(
+        session,
+        best_match['id'],
+        'movie',
+        token,
+    ) or best_match
+
     return {
         'status': 'found',
         'file': file_name,
@@ -444,7 +462,8 @@ async def resolve_single_movie(file_name: str, doc_id: str, session: aiohttp.Cli
             'vote_average': best_match.get('vote_average'),
             'year': int(best_match['release_date'][:4]) if best_match.get('release_date') else y,
             'rating': best_match.get('vote_average'),
-            'content_hash': str(doc_id)
+            'content_hash': str(doc_id),
+            'details': full_details,
         }
     }
 
@@ -604,7 +623,7 @@ async def batch_processor_engine(uris, db_name, col_name, redis_client):
 
                                 if not existing:
                                     try:
-                                        db.session.add(TVShow(
+                                        new_movie = TVShow(
                                             tmdb_id=tmdb['tmdb_id'],
                                             message_id=syn_id,
                                             show_name=tmdb['show_name'],
@@ -616,8 +635,10 @@ async def batch_processor_engine(uris, db_name, col_name, redis_client):
                                             category='movie',
                                             download_link=f"https://t.me/{bot_username}?start=search_{quote_plus(tmdb['show_name'][:40])}",
                                             content_hash=tmdb['content_hash']
-                                        ))
+                                        )
+                                        db.session.add(new_movie)
                                         db.session.flush()
+                                        apply_enrichment(new_movie, tmdb['details'])
                                         saves += 1
                                         redis_client.lpush("backfill:logs", f"✅ Added: {tmdb['show_name']}")
                                     except IntegrityError:
@@ -748,7 +769,7 @@ def sync_movies():
                                     syn_id = int(hashlib.sha256(tmdb['content_hash'].encode()).hexdigest(), 16) % (10**18)
                                     bot = os.environ.get('BOT_USERNAME', 'bot')
                                     try:
-                                        db.session.add(TVShow(
+                                        new_movie = TVShow(
                                             tmdb_id=tmdb['tmdb_id'],
                                             message_id=syn_id,
                                             show_name=tmdb['show_name'],
@@ -760,7 +781,10 @@ def sync_movies():
                                             category='movie',
                                             download_link=f"https://t.me/{bot}?start=search_{quote_plus(tmdb['show_name'][:40])}",
                                             content_hash=tmdb['content_hash']
-                                        ))
+                                        )
+                                        db.session.add(new_movie)
+                                        db.session.flush()
+                                        apply_enrichment(new_movie, tmdb['details'])
                                         db.session.commit()
                                     except: db.session.rollback()
                 except: pass

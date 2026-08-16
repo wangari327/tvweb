@@ -11,6 +11,14 @@
     <p>Filter the currently available catalogue without wading through stale or unavailable entries.</p>
 </section>
 
+{% if genre_hubs %}
+<section class="shell genre-discovery">
+    <div class="section-heading compact-heading"><div><span class="eyebrow">Collections</span><h2>Browse by genre</h2></div></div>
+    {% set category_key = site_mode %}
+    {% include "_genre_hubs.html" %}
+</section>
+{% endif %}
+
 <section class="shell catalogue-layout">
     <form method="get" action="{{ url_for(browse_endpoint) }}" class="filter-panel">
         <div class="filter-heading">
@@ -37,8 +45,8 @@
         </label>
         <label>Sort by
             <select name="sort_by">
-                <option value="name_asc" {% if current_sort_by == 'name_asc' %}selected{% endif %}>Title A–Z</option>
-                <option value="date_desc" {% if current_sort_by == 'date_desc' %}selected{% endif %}>Recently updated</option>
+                <option value="name_asc" {% if current_sort_by == 'name_asc' %}selected{% endif %}>Title A&ndash;Z</option>
+                <option value="date_desc" {% if current_sort_by == 'date_desc' %}selected{% endif %}>Recently available</option>
                 <option value="rating_desc" {% if current_sort_by == 'rating_desc' %}selected{% endif %}>Highest rated</option>
             </select>
         </label>
@@ -56,16 +64,11 @@
             {% for show in shows.items %}{{ poster_card(show) }}{% endfor %}
         </div>
         {% else %}
-        <div class="empty-state"><span aria-hidden="true">⌕</span><h3>No matches</h3><p>Try removing one or more filters.</p></div>
+        <div class="empty-state"><span aria-hidden="true">&#8981;</span><h3>No matches</h3><p>Try removing one or more filters.</p></div>
         {% endif %}
 
-        {% if shows.pages > 1 %}
-        <nav class="pagination" aria-label="Pagination">
-            {% if shows.has_prev %}<a href="{{ url_for(browse_endpoint, page=shows.prev_num, genre=selected_genre, rating=selected_rating, year=selected_year, sort_by=current_sort_by) }}">← Previous</a>{% endif %}
-            <span>Page {{ shows.page }} of {{ shows.pages }}</span>
-            {% if shows.has_next %}<a href="{{ url_for(browse_endpoint, page=shows.next_num, genre=selected_genre, rating=selected_rating, year=selected_year, sort_by=current_sort_by) }}">Next →</a>{% endif %}
-        </nav>
-        {% endif %}
+        {% set page_obj = shows %}
+        {% include "_pagination.html" %}
     </div>
 </section>
 {% endblock %}

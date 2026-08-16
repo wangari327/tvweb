@@ -1,0 +1,9 @@
+{% if genre_hubs %}
+<nav class="genre-hubs" aria-label="Browse by genre">
+    {% for genre, title_count in genre_hubs %}
+    <a href="{{ genre_url(category_key, genre) }}">
+        <span>{{ genre.name }}</span><small>{{ title_count }}</small>
+    </a>
+    {% endfor %}
+</nav>
+{% endif %}
