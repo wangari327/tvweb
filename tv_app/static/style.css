@@ -331,10 +331,6 @@ h3 { font-size: 1rem; }
 .telegram-note:hover strong { color: var(--accent); }
 .related-section { padding-top: 30px; }
 
-/* Ads */
-.ad-slot { display: grid; min-height: 110px; place-items: center; margin-block: 24px 46px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.02); color: #68738a; text-align: center; }
-.ad-slot > span { align-self: start; font-size: .62rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-
 /* Legal and errors */
 .legal-page { max-width: 960px; padding-block: 78px; }
 .legal-page > header { max-width: 820px; margin-bottom: 38px; }

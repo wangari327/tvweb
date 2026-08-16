@@ -44,7 +44,7 @@
 {% else %}
 {% set featured = trending_shows[0] if trending_shows else (shows.items[0] if shows.items else none) %}
 {% if featured %}
-<section class="feature-hero shell" data-reveal>
+<section class="feature-hero shell google-auto-ads-ignore" data-reveal>
     <div class="feature-visual" aria-hidden="true">
         {% if featured.poster_path %}<img class="feature-backdrop-image" src="{{ featured.poster_path }}" alt="" width="500" height="750">{% endif %}
         <span class="feature-aura"></span>
@@ -112,8 +112,4 @@
 </nav>
 {% endif %}
 
-<aside class="ad-slot shell google-auto-ads-ignore" aria-label="Advertisement">
-    <span>Advertisement</span>
-    <div id="ezoic-pub-ad-placeholder-107"></div>
-</aside>
 {% endblock %}

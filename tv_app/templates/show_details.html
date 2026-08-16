@@ -37,7 +37,7 @@
 
                 <div class="meta-chips" aria-label="Title information">
                     {% if show.year %}<span>{{ show.year }}</span>{% endif %}
-                    {% if show.rating or show.vote_average %}<span class="score"><b aria-hidden="true">★</b> {{ "%.1f"|format(show.rating or show.vote_average) }}</span>{% endif %}
+                    {% if show.rating or show.vote_average %}<span class="score"><b aria-hidden="true">&#9733;</b> {{ "%.1f"|format(show.rating or show.vote_average) }}</span>{% endif %}
                     {% for genre in show.genres[:3] %}<span>{{ genre.name }}</span>{% endfor %}
                 </div>
 
@@ -49,25 +49,20 @@
                         <p><strong>Available now</strong><small>The download flow continues in Telegram.</small></p>
                     </div>
                     {% if show.download_link %}
-                    <a href="{{ url_for('redirect_to_download', show_id=show.id) }}" class="button button-primary button-large" rel="nofollow">Continue to download <span aria-hidden="true">→</span></a>
+                    <a href="{{ url_for('redirect_to_download', show_id=show.id) }}" class="button button-primary button-large" rel="nofollow">Continue to download <span aria-hidden="true">&rarr;</span></a>
                     {% else %}
                     <span class="button button-disabled">Temporarily unavailable</span>
                     {% endif %}
                 </div>
 
                 <a class="telegram-note" href="https://t.me/i_boxtv" target="_blank" rel="noopener nofollow">
-                    <span aria-hidden="true">↗</span>
+                    <span aria-hidden="true">&#8599;</span>
                     <span><strong>Get instant updates</strong><small>Follow the iBOX TV Telegram channel</small></span>
                 </a>
             </div>
         </div>
     </div>
 </article>
-
-<aside class="ad-slot shell google-auto-ads-ignore" aria-label="Advertisement">
-    <span>Advertisement</span>
-    <div id="ezoic-pub-ad-placeholder-108"></div>
-</aside>
 
 {% if related_shows %}
 <section class="shell content-section related-section">

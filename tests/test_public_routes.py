@@ -86,7 +86,7 @@ class PublicRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
         self.assert_contains(response, '<link rel="canonical" href="https://ibox-tv.com/">')
-        self.assert_contains(response, '<section class="feature-hero shell"')
+        self.assert_contains(response, '<section class="feature-hero shell google-auto-ads-ignore"')
         self.assert_contains(response, "Find your next show")
         self.assert_contains(response, "<h1>The Ark</h1>")
         self.assert_contains(response, "Latest TV update")
@@ -117,6 +117,19 @@ class PublicRouteTests(unittest.TestCase):
             response.headers["Location"],
             "https://ibox-tv.com/show/the-ark?ref=legacy",
         )
+
+    def test_legacy_category_homepages_redirect_to_matching_paths(self):
+        previous_testing = app.testing
+        app.testing = False
+        try:
+            movies = self.client.get("/?q=moon", base_url="https://movies.ibox-tv.com")
+            anime = self.client.get("/?search=blue", base_url="https://anime.ibox-tv.com")
+        finally:
+            app.testing = previous_testing
+        self.assertEqual(movies.status_code, 301)
+        self.assertEqual(movies.headers["Location"], "https://ibox-tv.com/movies?q=moon")
+        self.assertEqual(anime.status_code, 301)
+        self.assertEqual(anime.headers["Location"], "https://ibox-tv.com/anime?search=blue")
 
     def test_legacy_and_wrong_category_detail_routes_redirect(self):
         legacy = self.client.get("/show/the-ark")
@@ -161,6 +174,17 @@ class PublicRouteTests(unittest.TestCase):
         self.assertEqual(self.client.get("/privacy-policy").status_code, 200)
         self.assertEqual(self.client.get("/about").status_code, 200)
         self.assertEqual(self.client.get("/static/site.webmanifest").status_code, 200)
+        self.assertEqual(self.client.get("/favicon.ico").status_code, 200)
+
+    def test_google_auto_ads_is_restored_without_ezoic_page_code(self):
+        body = self.client.get("/").get_data(as_text=True)
+        self.assertIn("pagead2.googlesyndication.com/pagead/js/adsbygoogle.js", body)
+        self.assertIn("ca-pub-3351229899410110", body)
+        self.assertNotIn("gatekeeperconsent.com", body)
+        self.assertNotIn("ezoic-pub-ad-placeholder", body)
+        ads_txt = self.client.get("/ads.txt")
+        self.assertEqual(ads_txt.status_code, 301)
+        self.assertEqual(ads_txt.headers["Location"], "https://srv.adstxtmanager.com/75094/ibox-tv.com")
 
     def test_robots_allows_search_pages_to_be_crawled_for_noindex(self):
         response = self.client.get("/robots.txt")

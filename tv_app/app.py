@@ -149,8 +149,14 @@ def enforce_primary_host():
         return None
     host = request.host.split(':', 1)[0].lower()
     if host in LEGACY_SITE_HOSTS:
+        path = request.path
+        if path == '/':
+            path = {
+                'anime.ibox-tv.com': '/anime',
+                'movies.ibox-tv.com': '/movies',
+            }.get(host, '/')
         query = f"?{request.query_string.decode('utf-8')}" if request.query_string else ''
-        return redirect(f"{SITE_BASE_URL}{request.path}{query}", code=301)
+        return redirect(f"{SITE_BASE_URL}{path}{query}", code=301)
     return None
 
 
@@ -584,6 +590,11 @@ def ads_txt_redirect():
 @app.route('/robots.txt')
 def robots_txt():
     return send_from_directory(app.static_folder, 'robots.txt', mimetype='text/plain')
+
+
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(app.static_folder, 'favicon.ico', mimetype='image/x-icon')
 
 
 @app.route('/privacy-policy')
