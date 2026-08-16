@@ -1,6 +1,30 @@
+import asyncio
 import unittest
 
-from tv_app.tmdb_enrichment import extract_enrichment
+from tv_app.tmdb_enrichment import extract_enrichment, fetch_tmdb_details
+
+
+class FakeResponse:
+    def __init__(self, status, payload=None):
+        self.status = status
+        self.payload = payload or {}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+    async def json(self):
+        return self.payload
+
+
+class FakeSession:
+    def __init__(self, status, payload=None):
+        self.response = FakeResponse(status, payload)
+
+    def get(self, *args, **kwargs):
+        return self.response
 
 
 class TMDBEnrichmentTests(unittest.TestCase):
@@ -80,6 +104,29 @@ class TMDBEnrichmentTests(unittest.TestCase):
         self.assertEqual(data["number_of_seasons"], 2)
         self.assertEqual(data["cast_data"][0]["character"], "Commander Lane")
         self.assertIsNone(data["official_trailer_key"])
+
+    def test_status_mode_distinguishes_not_found_from_temporary_error(self):
+        not_found = asyncio.run(
+            fetch_tmdb_details(
+                FakeSession(404), 123, "movie", "token", return_status=True
+            )
+        )
+        temporary_error = asyncio.run(
+            fetch_tmdb_details(
+                FakeSession(403), 123, "movie", "token", return_status=True
+            )
+        )
+
+        self.assertEqual(not_found, ("not_found", None))
+        self.assertEqual(temporary_error, ("error", None))
+
+    def test_default_fetch_result_remains_backward_compatible(self):
+        payload = {"id": 123, "title": "Example"}
+        details = asyncio.run(
+            fetch_tmdb_details(FakeSession(200, payload), 123, "movie", "token")
+        )
+
+        self.assertEqual(details, payload)
 
 
 if __name__ == "__main__":

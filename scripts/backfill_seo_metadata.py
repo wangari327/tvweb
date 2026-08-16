@@ -50,8 +50,10 @@ async def fetch_batch(session, rows, token_cycle, concurrency):
                 row.tmdb_id,
                 row.category,
                 next(token_cycle),
+                return_status=True,
             )
-            return row.id, details
+            status, payload = details
+            return row.id, status, payload
 
     return await asyncio.gather(*(fetch(row) for row in rows))
 
@@ -65,6 +67,8 @@ async def run(args):
     processed = 0
     enriched = 0
     unavailable = 0
+    retry_later = 0
+    deferred_ids = set()
 
     timeout = aiohttp.ClientTimeout(total=30)
     connector = aiohttp.TCPConnector(limit=max(args.concurrency * 2, 12))
@@ -79,6 +83,7 @@ async def run(args):
                         TVShow.category == category,
                         TVShow.tmdb_id.isnot(None),
                         TVShow.metadata_updated_at.is_(None),
+                        ~TVShow.id.in_(deferred_ids),
                     )
                     .order_by(
                         TVShow.clicks.desc(),
@@ -92,27 +97,31 @@ async def run(args):
                     break
 
                 results = await fetch_batch(session, rows, token_cycle, args.concurrency)
-                for show_id, details in results:
+                for show_id, status, details in results:
                     show = db.session.get(TVShow, show_id)
                     if show is None:
                         continue
-                    if details:
+                    if status == "ok" and details:
                         apply_enrichment(show, details)
                         enriched += 1
-                    else:
+                    elif status == "not_found":
                         show.metadata_status = "unavailable"
                         show.metadata_updated_at = datetime.utcnow()
                         unavailable += 1
+                    else:
+                        deferred_ids.add(show_id)
+                        retry_later += 1
                     processed += 1
                 db.session.commit()
                 print(
                     f"processed={processed} enriched={enriched} unavailable={unavailable} "
-                    f"category={category}",
+                    f"retry_later={retry_later} category={category}",
                     flush=True,
                 )
 
     print(
-        f"complete processed={processed} enriched={enriched} unavailable={unavailable}",
+        f"complete processed={processed} enriched={enriched} unavailable={unavailable} "
+        f"retry_later={retry_later}",
         flush=True,
     )
 

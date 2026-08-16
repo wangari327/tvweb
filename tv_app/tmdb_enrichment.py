@@ -129,8 +129,14 @@ async def fetch_tmdb_details(
     category: str,
     token: str,
     retries: int = 3,
+    return_status: bool = False,
 ) -> Optional[Dict[str, Any]]:
-    """Fetch top-level details, credits and videos in one TMDB request."""
+    """Fetch top-level details, credits and videos in one TMDB request.
+
+    Existing ingestion callers receive the historical ``details or None``
+    result. Bulk jobs can request ``(status, details)`` so a confirmed 404 is
+    never confused with a temporary rate-limit, server or network failure.
+    """
     namespace = "movie" if category == "movie" else "tv"
     append = "credits,videos" if category == "movie" else "aggregate_credits,videos"
     url = f"{TMDB_BASE_URL}/{namespace}/{tmdb_id}"
@@ -144,18 +150,19 @@ async def fetch_tmdb_details(
         try:
             async with session.get(url, params=params, headers=headers, timeout=20) as response:
                 if response.status == 200:
-                    return await response.json()
+                    details = await response.json()
+                    return ("ok", details) if return_status else details
                 if response.status == 404:
-                    return None
+                    return ("not_found", None) if return_status else None
                 if response.status == 429 or response.status >= 500:
                     await asyncio.sleep(1.5 * (attempt + 1))
                     continue
-                return None
+                return ("error", None) if return_status else None
         except Exception:
             if attempt + 1 >= retries:
-                return None
+                return ("error", None) if return_status else None
             await asyncio.sleep(1.5 * (attempt + 1))
-    return None
+    return ("error", None) if return_status else None
 
 
 def _genre_records(names):
