@@ -387,7 +387,8 @@ class PublicRouteTests(unittest.TestCase):
             self.assertEqual(self.client.get(f"/download/{quiet_garden_id}").status_code, 302)
             self.assertEqual(self.client.get(f"/download/{quiet_garden_id}").status_code, 302)
             self.assertEqual(self.client.get(f"/download/{ark_id}").status_code, 302)
-            trending = get_trending_shows(limit=2, category="tv")
+            with app.app_context():
+                trending = get_trending_shows(limit=2, category="tv")
 
         self.assertEqual([show.id for show in trending], [quiet_garden_id, ark_id])
         leaderboard_key = _popularity_leaderboard_key("tv")
