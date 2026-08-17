@@ -700,7 +700,7 @@ def _render_genre_hub(category_key: str, genre_slug: str):
     if page > 150:
         abort(404)
     cache_key = (
-        f"public:genre:{category_key}:{genre_slug}:p{page}:v2"
+        f"public:genre:{category_key}:{genre_slug}:p{page}:v1"
         if set(request.args).issubset({'page'})
         else None
     )
@@ -709,14 +709,11 @@ def _render_genre_hub(category_key: str, genre_slug: str):
         if cached_page:
             return cached_page
 
-    # ``show_genres`` is indexed by ``(genre_id, tvshow_id)``. Ordering by
-    # that association lets PostgreSQL stop after a small number of matching
-    # rows instead of sorting every title in broad genres such as Drama.
     shows = WindowPagination(
         _indexable_query(config['db'])
-        .join(show_genres, show_genres.c.tvshow_id == TVShow.id)
-        .filter(show_genres.c.genre_id == genre.id)
-        .order_by(show_genres.c.tvshow_id.desc()),
+        .join(TVShow.genres)
+        .filter(Genre.id == genre.id)
+        .order_by(*_popular_ordering()),
         page=page,
         per_page=30,
     )
