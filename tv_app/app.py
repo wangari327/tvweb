@@ -26,9 +26,23 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your_secret_key')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///tv_shows.db')
+database_url = os.environ.get('DATABASE_URL', 'sqlite:///tv_shows.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 60 * 60 * 24 * 30
+if not database_url.startswith('sqlite:'):
+    # Supabase's session pool has a much lower connection allowance than
+    # SQLAlchemy's default (five persistent connections plus ten overflow per
+    # process). The web and task workers share that allowance, so keep each
+    # process to one reusable connection and fail quickly rather than leaving
+    # every visitor queued behind a saturated pool.
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_size': 1,
+        'max_overflow': 0,
+        'pool_timeout': 12,
+        'pool_recycle': 300,
+        'pool_pre_ping': True,
+    }
 db.init_app(app)
 
 SITE_BASE_URL = os.environ.get('SITE_BASE_URL', 'https://ibox-tv.com').rstrip('/')
