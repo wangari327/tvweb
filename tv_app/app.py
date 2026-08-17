@@ -17,7 +17,7 @@ from flask import (
 from sqlalchemy import func
 from dotenv import load_dotenv
 from redis import Redis
-from werkzeug.exceptions import NotFound
+from werkzeug.exceptions import HTTPException, NotFound
 
 # UPDATED: Added SkippedFile import
 from .models import db, TVShow, Genre, SkippedFile, show_genres
@@ -625,6 +625,8 @@ def list_movies():
             _write_public_page_cache(cache_key, html)
         return html
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         logger.error(f"Error in list_movies: {e}")
         return render_template('500.html'), 500
 
