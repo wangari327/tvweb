@@ -50,7 +50,6 @@ SITE_HOST = urlparse(SITE_BASE_URL).netloc.lower()
 GENRE_HUB_CACHE_TTL = max(300, int(os.environ.get('GENRE_HUB_CACHE_TTL', '21600')))
 TRENDING_CACHE_TTL = max(60, int(os.environ.get('TRENDING_CACHE_TTL', '900')))
 PUBLIC_PAGE_CACHE_TTL = max(300, int(os.environ.get('PUBLIC_PAGE_CACHE_TTL', '3600')))
-POPULAR_INDEX_READY_KEY = 'catalogue:popular-index-ready'
 POPULAR_LEADERBOARD_TTL = max(3600, int(os.environ.get('POPULAR_LEADERBOARD_TTL', '43200')))
 POPULAR_LEADERBOARD_MAX_TITLES = max(60, int(os.environ.get('POPULAR_LEADERBOARD_MAX_TITLES', '300')))
 FALLBACK_GENRE_HUBS = {
@@ -157,22 +156,10 @@ def _public_slug(show: TVShow) -> str:
     return show.slug
 
 
-def _popular_index_ready() -> bool:
-    """Avoid a full click-sort until the supporting production index exists."""
-    if app.testing:
-        return True
-    try:
-        return _redis().get(POPULAR_INDEX_READY_KEY) == '1'
-    except Exception as exc:
-        logger.warning("Popularity index state read failed: %s", exc)
-        return False
-
-
 def _popular_ordering():
-    if _popular_index_ready():
-        return (TVShow.clicks.desc(), TVShow.availability_updated_at.desc())
-    # A cache miss must never sort the full production catalogue while the
-    # click index is being built. This fallback is backed by an existing index.
+    # Redis is the live popularity source. Before it has a click to rank, use
+    # the indexed availability order rather than sorting the full catalogue by
+    # the legacy SQL counter.
     return (TVShow.availability_updated_at.desc(),)
 
 
@@ -428,13 +415,11 @@ def get_trending_shows(limit: int = 6, category: str = 'tv'):
     except Exception as exc:
         logger.warning("Trending cache read failed: %s", exc)
 
-    uses_click_index = _popular_index_ready()
     rows = _public_query(target_cat).order_by(*_popular_ordering()).limit(limit).all()
-    if uses_click_index:
-        try:
-            _redis().setex(cache_key, TRENDING_CACHE_TTL, json.dumps([show.id for show in rows]))
-        except Exception as exc:
-            logger.warning("Trending cache write failed: %s", exc)
+    try:
+        _redis().setex(cache_key, TRENDING_CACHE_TTL, json.dumps([show.id for show in rows]))
+    except Exception as exc:
+        logger.warning("Trending cache write failed: %s", exc)
     return rows
 
 
