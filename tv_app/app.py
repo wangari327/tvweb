@@ -397,6 +397,10 @@ def _render_index(mode: str, endpoint: str):
     db_category = CATEGORY_CONFIG[mode]['db']
     search_query = (request.args.get('search') or '').strip()
     page = max(request.args.get('page', 1, type=int), 1)
+    # Search result pages have no value dozens of pages deep and were being
+    # used by crawlers to keep expensive offsets open indefinitely.
+    if search_query and page > 100:
+        abort(404)
     per_page = 20
     cache_key = f"public:page:{mode}:home:v1" if not search_query and page == 1 else None
     if cache_key:
@@ -430,7 +434,10 @@ def _render_index(mode: str, endpoint: str):
         result_counts['anime'] = count_search_results('anime', search_query)
         result_counts['movies'] = count_search_results('movie', search_query)
     else:
-        shows = base_query.order_by(TVShow.availability_updated_at.desc()).paginate(
+        # ``created_at`` tracks when a title was added from the Telegram dump
+        # channel. Metadata enrichment can happen much later and must not
+        # reshuffle the visitor-facing "Latest drops" rail.
+        shows = base_query.order_by(TVShow.created_at.desc()).paginate(
             page=page, per_page=per_page, error_out=False
         )
         page_title = "Latest anime" if mode == 'anime' else "Latest TV shows"
@@ -553,6 +560,10 @@ def browse_anime():
 def list_movies():
     try:
         page = max(request.args.get('page', 1, type=int), 1)
+        # 30 titles per page covers the whole current catalogue well before
+        # this ceiling. Reject nonsensical crawler offsets cheaply.
+        if page > 2500:
+            abort(404)
         per_page = 30
         search_q = (request.args.get('q') or '').strip()
         sort_by = request.args.get('sort_by', 'date_desc')
@@ -584,11 +595,11 @@ def list_movies():
             elif sort_by == 'rating_desc':
                 query = query.order_by(TVShow.rating.desc().nullslast())
             elif sort_by == 'date_asc':
-                query = query.order_by(TVShow.availability_updated_at.asc())
+                query = query.order_by(TVShow.created_at.asc())
             else:
-                query = query.order_by(TVShow.availability_updated_at.desc())
+                query = query.order_by(TVShow.created_at.desc())
         else:
-            query = query.order_by(TVShow.availability_updated_at.desc())
+            query = query.order_by(TVShow.created_at.desc())
 
         movies = WindowPagination(query, page=page, per_page=per_page)
 
@@ -709,41 +720,11 @@ def _render_show_details(slug: str, expected_category: str):
             meta_desc = f"View availability, details, and the latest update for {show.show_name} on iBOX TV."
         meta_desc = meta_desc[:160]
 
-        genre_ids = [genre.id for genre in show.genres]
-        if genre_ids:
-            shared_genres = (
-                db.session.query(
-                    show_genres.c.tvshow_id.label('show_id'),
-                    func.count(show_genres.c.genre_id).label('shared_count'),
-                )
-                .filter(show_genres.c.genre_id.in_(genre_ids))
-                .group_by(show_genres.c.tvshow_id)
-                .subquery()
-            )
-            related_shows = (
-                _indexable_query(show.category)
-                .join(shared_genres, shared_genres.c.show_id == TVShow.id)
-                .filter(TVShow.id != show.id)
-                .order_by(
-                    shared_genres.c.shared_count.desc(),
-                    TVShow.rating.desc().nullslast(),
-                    TVShow.clicks.desc(),
-                )
-                .limit(10)
-                .all()
-            )
-        else:
-            related_shows = (
-                _indexable_query(show.category)
-                .filter(TVShow.id != show.id)
-                .order_by(
-                    TVShow.clicks.desc(),
-                    TVShow.rating.desc().nullslast(),
-                    TVShow.availability_updated_at.desc().nullslast(),
-                )
-                .limit(10)
-                .all()
-            )
+        # Calculating cross-catalogue related titles in a visitor request scans
+        # the large title/genre relation and is the source of current detail
+        # page timeouts. Facts, cast and trailers remain available; related
+        # recommendations will return when precomputed offline.
+        related_shows = []
 
         return render_template('show_details.html',
             show=show, title=page_title, meta_description=meta_desc,

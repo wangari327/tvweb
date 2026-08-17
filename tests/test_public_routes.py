@@ -229,8 +229,9 @@ class PublicRouteTests(unittest.TestCase):
         self.assert_contains(response, "Avery Stone")
         self.assert_contains(response, "Availability snapshot")
         self.assert_contains(response, '"@type": "BreadcrumbList"')
-        self.assertIn("Deep Horizon", body)
-        self.assertNotIn("Quiet Garden", body)
+        # Genre links keep the page contextually connected without requiring
+        # an expensive related-title catalogue query on every visitor request.
+        self.assertNotIn("More like The Ark", body)
 
     def test_genre_hub_is_crawlable_indexable_and_in_core_sitemap(self):
         response = self.client.get("/tv/genre/science-fiction")
