@@ -35,6 +35,7 @@ SITE_BASE_URL = os.environ.get('SITE_BASE_URL', 'https://ibox-tv.com').rstrip('/
 SITE_HOST = urlparse(SITE_BASE_URL).netloc.lower()
 GENRE_HUB_CACHE_TTL = max(300, int(os.environ.get('GENRE_HUB_CACHE_TTL', '21600')))
 TRENDING_CACHE_TTL = max(60, int(os.environ.get('TRENDING_CACHE_TTL', '900')))
+PUBLIC_PAGE_CACHE_TTL = max(300, int(os.environ.get('PUBLIC_PAGE_CACHE_TTL', '3600')))
 FALLBACK_GENRE_HUBS = {
     'tv': ('Action', 'Adventure', 'Comedy', 'Crime', 'Drama', 'Family', 'Fantasy', 'Mystery', 'Reality', 'Science Fiction', 'Thriller'),
     'anime': ('Action', 'Adventure', 'Animation', 'Comedy', 'Drama', 'Fantasy', 'Horror', 'Mystery', 'Romance', 'Science Fiction'),
@@ -293,6 +294,26 @@ def get_trending_shows(limit: int = 6, category: str = 'tv'):
         logger.warning("Trending cache write failed: %s", exc)
     return rows
 
+
+def _read_public_page_cache(cache_key: str):
+    """Serve a recently rendered catalogue page while the database is busy."""
+    if app.testing:
+        return None
+    try:
+        return _redis().get(cache_key)
+    except Exception as exc:
+        logger.warning("Public-page cache read failed: %s", exc)
+        return None
+
+
+def _write_public_page_cache(cache_key: str, html: str):
+    if app.testing:
+        return
+    try:
+        _redis().setex(cache_key, PUBLIC_PAGE_CACHE_TTL, html)
+    except Exception as exc:
+        logger.warning("Public-page cache write failed: %s", exc)
+
 def count_search_results(category: str, query_str: str) -> int:
     """
     NEW: consistently counts results for a category to populate the search tabs.
@@ -363,6 +384,11 @@ def _render_index(mode: str, endpoint: str):
     search_query = (request.args.get('search') or '').strip()
     page = max(request.args.get('page', 1, type=int), 1)
     per_page = 20
+    cache_key = f"public:page:{mode}:home:v1" if not search_query and page == 1 else None
+    if cache_key:
+        cached_page = _read_public_page_cache(cache_key)
+        if cached_page:
+            return cached_page
     base_query = _public_query(db_category)
     trending_shows = get_trending_shows(limit=6, category=mode)
     message = None
@@ -402,7 +428,7 @@ def _render_index(mode: str, endpoint: str):
         index_pagination=True,
     )
 
-    return render_template('index.html',
+    html = render_template('index.html',
         shows=shows, search_query=search_query, trending_shows=trending_shows,
         genre_hubs=_popular_genres(CATEGORY_CONFIG[mode]['db']),
         pagination_numbers=_pagination_numbers(shows),
@@ -410,6 +436,9 @@ def _render_index(mode: str, endpoint: str):
         result_counts=result_counts,
         canonical_url=canonical_url, prev_url=prev_url, next_url=next_url, meta_robots=meta_robots
     )
+    if cache_key:
+        _write_public_page_cache(cache_key, html)
+    return html
 
 
 @app.route('/')
@@ -515,6 +544,15 @@ def list_movies():
         sort_by = request.args.get('sort_by', 'date_desc')
         year_filter = request.args.get('year', type=int)
         rating_filter = request.args.get('rating', type=int)
+        cache_key = (
+            'public:page:movies:home:v1'
+            if page == 1 and not search_q and sort_by == 'date_desc' and not year_filter and rating_filter is None
+            else None
+        )
+        if cache_key:
+            cached_page = _read_public_page_cache(cache_key)
+            if cached_page:
+                return cached_page
 
         query = _public_query('movie')
 
@@ -550,7 +588,7 @@ def list_movies():
             'rating': rating_filter,
         }, index_pagination=True)
 
-        return render_template('movies.html',
+        html = render_template('movies.html',
             movies=movies, years=years,
             genre_hubs=_popular_genres('movie'),
             pagination_numbers=_pagination_numbers(movies),
@@ -558,6 +596,9 @@ def list_movies():
             title="Browse Movies",
             canonical_url=canonical_url, prev_url=prev_url, next_url=next_url, meta_robots=meta_robots
         )
+        if cache_key:
+            _write_public_page_cache(cache_key, html)
+        return html
     except Exception as e:
         logger.error(f"Error in list_movies: {e}")
         return render_template('500.html'), 500
