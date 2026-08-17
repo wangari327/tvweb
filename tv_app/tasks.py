@@ -321,9 +321,6 @@ def update_tv_shows(self):
 def reset_clicks():
     from tv_app.app import app, _popularity_cache_keys, _popularity_leaderboard_key, _redis
     with app.app_context():
-        from tv_app.models import db, TVShow
-        TVShow.query.update({TVShow.clicks: 0})
-        db.session.commit()
         try:
             redis_client = _redis()
             keys = []
@@ -332,8 +329,9 @@ def reset_clicks():
                 keys.extend(_popularity_cache_keys(category))
             redis_client.delete(*keys)
         except Exception as exc:
-            # The next leaderboard read will naturally expire if Redis is
-            # unavailable during the scheduled reset.
+            # The TTL is a safety net if Redis is unavailable during the
+            # scheduled reset. SQL ``clicks`` remains a durable diagnostic
+            # counter; it is no longer the live popularity source.
             logger.warning("Could not reset live popularity leaderboard: %s", exc)
 
 @celery.task(name="tv_app.tasks.test_task")
