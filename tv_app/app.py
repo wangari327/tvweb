@@ -51,6 +51,7 @@ GENRE_HUB_CACHE_TTL = max(300, int(os.environ.get('GENRE_HUB_CACHE_TTL', '21600'
 TRENDING_CACHE_TTL = max(60, int(os.environ.get('TRENDING_CACHE_TTL', '900')))
 PUBLIC_PAGE_CACHE_TTL = max(300, int(os.environ.get('PUBLIC_PAGE_CACHE_TTL', '3600')))
 POPULAR_INDEX_READY_KEY = 'catalogue:popular-index-ready'
+POPULAR_LEADERBOARD_TTL = max(3600, int(os.environ.get('POPULAR_LEADERBOARD_TTL', '43200')))
 FALLBACK_GENRE_HUBS = {
     'tv': ('Action', 'Adventure', 'Comedy', 'Crime', 'Drama', 'Family', 'Fantasy', 'Mystery', 'Reality', 'Science Fiction', 'Thriller'),
     'anime': ('Action', 'Adventure', 'Animation', 'Comedy', 'Drama', 'Fantasy', 'Horror', 'Mystery', 'Romance', 'Science Fiction'),
@@ -172,6 +173,71 @@ def _popular_ordering():
     # A cache miss must never sort the full production catalogue while the
     # click index is being built. This fallback is backed by an existing index.
     return (TVShow.availability_updated_at.desc(),)
+
+
+def _popularity_leaderboard_key(category: str) -> str:
+    """Return the Redis sorted-set key for a catalogue category."""
+    target_category = 'movie' if category == 'movies' else category
+    return f'popularity:downloads:{target_category}'
+
+
+def _live_popular_show_ids(category: str, limit: int) -> list:
+    """Read the current popularity window without sorting the SQL catalogue."""
+    try:
+        show_ids = _redis().zrevrange(
+            _popularity_leaderboard_key(category), 0, max(limit - 1, 0)
+        )
+        return [int(show_id) for show_id in show_ids]
+    except Exception as exc:
+        logger.warning("Live popularity read failed: %s", exc)
+        return []
+
+
+def _ranked_public_shows(category: str, show_ids: list):
+    """Fetch only leaderboard titles and preserve their Redis rank order."""
+    if not show_ids:
+        return []
+    rows = _public_query(category).filter(TVShow.id.in_(show_ids)).all()
+    by_id = {show.id: show for show in rows}
+    return [by_id[show_id] for show_id in show_ids if show_id in by_id]
+
+
+def _popularity_cache_keys(category: str):
+    """Rendered pages whose featured rail changes when a download is opened."""
+    target_category = 'movie' if category == 'movies' else category
+    keys = [f'public:trending:{target_category}:6']
+    if target_category == 'movie':
+        keys.extend(
+            (
+                'public:page:movies:date_desc:v2:p1',
+                'public:page:movies:popular:v2:p1',
+            )
+        )
+    else:
+        keys.extend(
+            (
+                f'public:page:{target_category}:home:v2:p1',
+                f'public:browse:{target_category}:popular:p1:v1',
+            )
+        )
+    return keys
+
+
+def _record_popularity_click(show: TVShow):
+    """Update the live 12-hour leaderboard after a confirmed download click."""
+    category = show.category
+    try:
+        redis_client = _redis()
+        leaderboard_key = _popularity_leaderboard_key(category)
+        redis_client.zincrby(leaderboard_key, 1, show.id)
+        # Celery performs the fixed twelve-hour reset. The TTL is a safeguard
+        # so a stalled scheduler cannot leave an old leaderboard behind.
+        redis_client.expire(leaderboard_key, POPULAR_LEADERBOARD_TTL)
+        redis_client.delete(*_popularity_cache_keys(category))
+    except Exception as exc:
+        # Downloading must still work if Redis is briefly unavailable. The
+        # durable SQL click counter has already been committed at this point.
+        logger.warning("Live popularity update failed: %s", exc)
 
 
 def content_url(show: TVShow, external: bool = False) -> str:
@@ -304,9 +370,26 @@ def inject_globals():
     }
 
 def get_trending_shows(limit: int = 6, category: str = 'tv'):
-    """Fetch curated popular titles without re-sorting the catalogue per visit."""
+    """Fetch live popular titles without re-sorting the SQL catalogue."""
     target_cat = 'movie' if category == 'movies' else category
     cache_key = f"public:trending:{target_cat}:{limit}"
+
+    live_show_ids = _live_popular_show_ids(target_cat, limit)
+    live_shows = _ranked_public_shows(target_cat, live_show_ids)
+    if live_shows:
+        if len(live_shows) >= limit:
+            return live_shows[:limit]
+        # Keep the carousel full while the new leaderboard gathers activity,
+        # without changing the live click-ranked titles already at its front.
+        remaining = limit - len(live_shows)
+        fallback = (
+            _public_query(target_cat)
+            .filter(~TVShow.id.in_([show.id for show in live_shows]))
+            .order_by(TVShow.availability_updated_at.desc())
+            .limit(remaining)
+            .all()
+        )
+        return live_shows + fallback
 
     try:
         cached = _redis().get(cache_key)
@@ -865,6 +948,7 @@ def redirect_to_download(show_id):
         if show.download_link:
             show.clicks = (show.clicks or 0) + 1
             db.session.commit()
+            _record_popularity_click(show)
             link = show.download_link
             
             # 🚀 Automatic fix for Telegram Bot Deep Links (Slugify + Smart Truncate)

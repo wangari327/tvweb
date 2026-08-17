@@ -1,13 +1,62 @@
 import os
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("SITE_BASE_URL", "https://ibox-tv.com")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 
-from tv_app.app import _detail_page_title, app
+from tv_app.app import _detail_page_title, _popularity_leaderboard_key, app, get_trending_shows
 from tv_app.models import Genre, TVShow, db
+
+
+class FakeRedis:
+    """Small in-memory Redis subset for popularity-route tests."""
+
+    def __init__(self):
+        self.values = {}
+        self.sorted_sets = {}
+        self.expirations = {}
+
+    def get(self, key):
+        return self.values.get(key)
+
+    def setex(self, key, _ttl, value):
+        self.values[key] = value
+
+    def delete(self, *keys):
+        removed = 0
+        for key in keys:
+            if key in self.values:
+                del self.values[key]
+                removed += 1
+            if key in self.sorted_sets:
+                del self.sorted_sets[key]
+                removed += 1
+            self.expirations.pop(key, None)
+        return removed
+
+    def zincrby(self, key, amount, member):
+        values = self.sorted_sets.setdefault(key, {})
+        member = str(member)
+        values[member] = values.get(member, 0) + amount
+        return values[member]
+
+    def zrevrange(self, key, start, end):
+        values = self.sorted_sets.get(key, {})
+        ranked = [
+            member for member, _score in sorted(
+                values.items(), key=lambda item: (-item[1], int(item[0]))
+            )
+        ]
+        if end == -1:
+            return ranked[start:]
+        return ranked[start:end + 1]
+
+    def expire(self, key, seconds):
+        self.expirations[key] = seconds
+        return True
 
 
 class PublicRouteTests(unittest.TestCase):
@@ -325,6 +374,24 @@ class PublicRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         with app.app_context():
             self.assertEqual(TVShow.query.get(show_id).clicks, starting_clicks + 1)
+
+    def test_download_updates_redis_popularity_leaderboard(self):
+        with app.app_context():
+            ark = TVShow.query.filter_by(slug="the-ark").first()
+            quiet_garden = TVShow.query.filter_by(slug="quiet-garden").first()
+            ark_id = ark.id
+            quiet_garden_id = quiet_garden.id
+
+        fake_redis = FakeRedis()
+        with patch("tv_app.app._redis", return_value=fake_redis):
+            self.assertEqual(self.client.get(f"/download/{quiet_garden_id}").status_code, 302)
+            self.assertEqual(self.client.get(f"/download/{quiet_garden_id}").status_code, 302)
+            self.assertEqual(self.client.get(f"/download/{ark_id}").status_code, 302)
+            trending = get_trending_shows(limit=2, category="tv")
+
+        self.assertEqual([show.id for show in trending], [quiet_garden_id, ark_id])
+        leaderboard_key = _popularity_leaderboard_key("tv")
+        self.assertEqual(fake_redis.expirations[leaderboard_key], 43200)
 
     def test_security_headers_are_added(self):
         response = self.client.get("/")
