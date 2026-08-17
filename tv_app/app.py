@@ -34,6 +34,7 @@ db.init_app(app)
 SITE_BASE_URL = os.environ.get('SITE_BASE_URL', 'https://ibox-tv.com').rstrip('/')
 SITE_HOST = urlparse(SITE_BASE_URL).netloc.lower()
 GENRE_HUB_CACHE_TTL = max(300, int(os.environ.get('GENRE_HUB_CACHE_TTL', '21600')))
+TRENDING_CACHE_TTL = max(60, int(os.environ.get('TRENDING_CACHE_TTL', '900')))
 FALLBACK_GENRE_HUBS = {
     'tv': ('Action', 'Adventure', 'Comedy', 'Crime', 'Drama', 'Family', 'Fantasy', 'Mystery', 'Reality', 'Science Fiction', 'Thriller'),
     'anime': ('Action', 'Adventure', 'Animation', 'Comedy', 'Drama', 'Fantasy', 'Horror', 'Mystery', 'Romance', 'Science Fiction'),
@@ -268,12 +269,29 @@ def inject_globals():
     }
 
 def get_trending_shows(limit: int = 6, category: str = 'tv'):
-    """Fetches top clicked shows FOR THE CURRENT CATEGORY only."""
-    with app.app_context():
-        target_cat = 'movie' if category == 'movies' else category
-        return _public_query(target_cat).order_by(
-            TVShow.clicks.desc(), TVShow.availability_updated_at.desc()
-        ).limit(limit).all()
+    """Fetch curated popular titles without re-sorting the catalogue per visit."""
+    target_cat = 'movie' if category == 'movies' else category
+    cache_key = f"public:trending:{target_cat}:{limit}"
+
+    try:
+        cached = _redis().get(cache_key)
+        if cached:
+            show_ids = [int(show_id) for show_id in json.loads(cached)]
+            rows = _public_query(target_cat).filter(TVShow.id.in_(show_ids)).all()
+            by_id = {show.id: show for show in rows}
+            if len(by_id) == len(show_ids):
+                return [by_id[show_id] for show_id in show_ids]
+    except Exception as exc:
+        logger.warning("Trending cache read failed: %s", exc)
+
+    rows = _public_query(target_cat).order_by(
+        TVShow.clicks.desc(), TVShow.availability_updated_at.desc()
+    ).limit(limit).all()
+    try:
+        _redis().setex(cache_key, TRENDING_CACHE_TTL, json.dumps([show.id for show in rows]))
+    except Exception as exc:
+        logger.warning("Trending cache write failed: %s", exc)
+    return rows
 
 def count_search_results(category: str, query_str: str) -> int:
     """
