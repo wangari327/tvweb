@@ -50,6 +50,7 @@ SITE_HOST = urlparse(SITE_BASE_URL).netloc.lower()
 GENRE_HUB_CACHE_TTL = max(300, int(os.environ.get('GENRE_HUB_CACHE_TTL', '21600')))
 TRENDING_CACHE_TTL = max(60, int(os.environ.get('TRENDING_CACHE_TTL', '900')))
 PUBLIC_PAGE_CACHE_TTL = max(300, int(os.environ.get('PUBLIC_PAGE_CACHE_TTL', '3600')))
+POPULAR_INDEX_READY_KEY = 'catalogue:popular-index-ready'
 FALLBACK_GENRE_HUBS = {
     'tv': ('Action', 'Adventure', 'Comedy', 'Crime', 'Drama', 'Family', 'Fantasy', 'Mystery', 'Reality', 'Science Fiction', 'Thriller'),
     'anime': ('Action', 'Adventure', 'Animation', 'Comedy', 'Drama', 'Fantasy', 'Horror', 'Mystery', 'Romance', 'Science Fiction'),
@@ -152,6 +153,25 @@ def _public_slug(show: TVShow) -> str:
     if show.tmdb_id and title_slug:
         return f"{show.tmdb_id}-{title_slug}"
     return show.slug
+
+
+def _popular_index_ready() -> bool:
+    """Avoid a full click-sort until the supporting production index exists."""
+    if app.testing:
+        return True
+    try:
+        return _redis().get(POPULAR_INDEX_READY_KEY) == '1'
+    except Exception as exc:
+        logger.warning("Popularity index state read failed: %s", exc)
+        return False
+
+
+def _popular_ordering():
+    if _popular_index_ready():
+        return (TVShow.clicks.desc(), TVShow.availability_updated_at.desc())
+    # A cache miss must never sort the full production catalogue while the
+    # click index is being built. This fallback is backed by an existing index.
+    return (TVShow.availability_updated_at.desc(),)
 
 
 def content_url(show: TVShow, external: bool = False) -> str:
@@ -299,13 +319,13 @@ def get_trending_shows(limit: int = 6, category: str = 'tv'):
     except Exception as exc:
         logger.warning("Trending cache read failed: %s", exc)
 
-    rows = _public_query(target_cat).order_by(
-        TVShow.clicks.desc(), TVShow.availability_updated_at.desc()
-    ).limit(limit).all()
-    try:
-        _redis().setex(cache_key, TRENDING_CACHE_TTL, json.dumps([show.id for show in rows]))
-    except Exception as exc:
-        logger.warning("Trending cache write failed: %s", exc)
+    uses_click_index = _popular_index_ready()
+    rows = _public_query(target_cat).order_by(*_popular_ordering()).limit(limit).all()
+    if uses_click_index:
+        try:
+            _redis().setex(cache_key, TRENDING_CACHE_TTL, json.dumps([show.id for show in rows]))
+        except Exception as exc:
+            logger.warning("Trending cache write failed: %s", exc)
     return rows
 
 
@@ -522,7 +542,7 @@ def _render_browse(category: str, endpoint: str):
                 query = query.filter(TVShow.rating >= lower, TVShow.rating < lower + 1.0)
 
         if sort_by == 'popular':
-            query = query.order_by(TVShow.clicks.desc(), TVShow.availability_updated_at.desc())
+            query = query.order_by(*_popular_ordering())
         elif sort_by == 'name_asc':
             query = query.order_by(TVShow.show_name.asc())
         elif sort_by == 'name_desc':
@@ -618,7 +638,7 @@ def list_movies():
 
         if not search_q:
             if sort_by == 'popular':
-                query = query.order_by(TVShow.clicks.desc(), TVShow.availability_updated_at.desc())
+                query = query.order_by(*_popular_ordering())
             elif sort_by == 'name_asc':
                 query = query.order_by(TVShow.show_name.asc())
             elif sort_by == 'rating_desc':
@@ -693,11 +713,7 @@ def _render_genre_hub(category_key: str, genre_slug: str):
         _indexable_query(config['db'])
         .join(TVShow.genres)
         .filter(Genre.id == genre.id)
-        .order_by(
-            TVShow.clicks.desc(),
-            TVShow.rating.desc().nullslast(),
-            TVShow.availability_updated_at.desc().nullslast(),
-        ),
+        .order_by(*_popular_ordering()),
         page=page,
         per_page=30,
     )
