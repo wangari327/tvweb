@@ -52,6 +52,7 @@ TRENDING_CACHE_TTL = max(60, int(os.environ.get('TRENDING_CACHE_TTL', '900')))
 PUBLIC_PAGE_CACHE_TTL = max(300, int(os.environ.get('PUBLIC_PAGE_CACHE_TTL', '3600')))
 POPULAR_INDEX_READY_KEY = 'catalogue:popular-index-ready'
 POPULAR_LEADERBOARD_TTL = max(3600, int(os.environ.get('POPULAR_LEADERBOARD_TTL', '43200')))
+POPULAR_LEADERBOARD_MAX_TITLES = max(60, int(os.environ.get('POPULAR_LEADERBOARD_MAX_TITLES', '300')))
 FALLBACK_GENRE_HUBS = {
     'tv': ('Action', 'Adventure', 'Comedy', 'Crime', 'Drama', 'Family', 'Fantasy', 'Mystery', 'Reality', 'Science Fiction', 'Thriller'),
     'anime': ('Action', 'Adventure', 'Animation', 'Comedy', 'Drama', 'Fantasy', 'Horror', 'Mystery', 'Romance', 'Science Fiction'),
@@ -202,6 +203,31 @@ def _ranked_public_shows(category: str, show_ids: list):
     return [by_id[show_id] for show_id in show_ids if show_id in by_id]
 
 
+class ListPagination:
+    """Pagination for the small, already-ranked Redis leaderboard result."""
+
+    def __init__(self, items: list, page: int, per_page: int):
+        self.page = page
+        self.per_page = per_page
+        self.total = len(items)
+        self.pages = max(1, math.ceil(self.total / per_page))
+        start = (page - 1) * per_page
+        self.items = items[start:start + per_page]
+        self.has_prev = page > 1
+        self.prev_num = page - 1 if self.has_prev else None
+        self.has_next = start + per_page < self.total
+        self.next_num = page + 1 if self.has_next else None
+
+
+def _live_popular_pagination(category: str, page: int, per_page: int):
+    """Return click-ranked browse results, or None until the window has clicks."""
+    show_ids = _live_popular_show_ids(category, POPULAR_LEADERBOARD_MAX_TITLES)
+    ranked_shows = _ranked_public_shows(category, show_ids)
+    if not ranked_shows:
+        return None
+    return ListPagination(ranked_shows, page=page, per_page=per_page)
+
+
 def _popularity_cache_keys(category: str):
     """Rendered pages whose featured rail changes when a download is opened."""
     target_category = 'movie' if category == 'movies' else category
@@ -209,15 +235,15 @@ def _popularity_cache_keys(category: str):
     if target_category == 'movie':
         keys.extend(
             (
-                'public:page:movies:date_desc:v2:p1',
-                'public:page:movies:popular:v2:p1',
+                'public:page:movies:date_desc:v3:p1',
+                'public:page:movies:popular:v3:p1',
             )
         )
     else:
         keys.extend(
             (
-                f'public:page:{target_category}:home:v2:p1',
-                f'public:browse:{target_category}:popular:p1:v1',
+                f'public:page:{target_category}:home:v3:p1',
+                f'public:browse:{target_category}:popular:p1:v2',
             )
         )
     return keys
@@ -515,7 +541,7 @@ def _render_index(mode: str, endpoint: str):
     if page > 150:
         abort(404)
     per_page = 20
-    cache_key = f"public:page:{mode}:home:v2:p{page}" if not search_query else None
+    cache_key = f"public:page:{mode}:home:v3:p{page}" if not search_query else None
     if cache_key:
         cached_page = _read_public_page_cache(cache_key)
         if cached_page:
@@ -602,7 +628,7 @@ def _render_browse(category: str, endpoint: str):
         if sort_by not in valid_sorts:
             sort_by = 'popular'
         cache_key = (
-            f"public:browse:{category}:{sort_by}:p{page}:v1"
+            f"public:browse:{category}:{sort_by}:p{page}:v2"
             if not genre_filter and rating_filter is None and year_filter is None
             else None
         )
@@ -624,7 +650,13 @@ def _render_browse(category: str, endpoint: str):
             else:
                 query = query.filter(TVShow.rating >= lower, TVShow.rating < lower + 1.0)
 
-        if sort_by == 'popular':
+        live_popularity = None
+        if sort_by == 'popular' and not genre_filter and rating_filter is None and year_filter is None:
+            live_popularity = _live_popular_pagination(category, page, per_page)
+
+        if live_popularity is not None:
+            shows_paginated = live_popularity
+        elif sort_by == 'popular':
             query = query.order_by(*_popular_ordering())
         elif sort_by == 'name_asc':
             query = query.order_by(TVShow.show_name.asc())
@@ -639,7 +671,8 @@ def _render_browse(category: str, endpoint: str):
         elif sort_by == 'rating_desc':
             query = query.order_by(TVShow.rating.desc().nullslast())
 
-        shows_paginated = WindowPagination(query, page=page, per_page=per_page)
+        if live_popularity is None:
+            shows_paginated = WindowPagination(query, page=page, per_page=per_page)
         if page > 1 and not shows_paginated.items:
             abort(404)
 
@@ -700,7 +733,7 @@ def list_movies():
         year_filter = request.args.get('year', type=int)
         rating_filter = request.args.get('rating', type=int)
         cache_key = (
-            f'public:page:movies:{sort_by}:v2:p{page}'
+            f'public:page:movies:{sort_by}:v3:p{page}'
             if page <= 150 and not search_q and not year_filter and rating_filter is None
             else None
         )
@@ -719,7 +752,11 @@ def list_movies():
         if rating_filter is not None:
              query = query.filter(TVShow.rating >= float(rating_filter))
 
-        if not search_q:
+        live_popularity = None
+        if sort_by == 'popular' and not search_q and not year_filter and rating_filter is None:
+            live_popularity = _live_popular_pagination('movie', page, per_page)
+
+        if live_popularity is None and not search_q:
             if sort_by == 'popular':
                 query = query.order_by(*_popular_ordering())
             elif sort_by == 'name_asc':
@@ -730,10 +767,10 @@ def list_movies():
                 query = query.order_by(TVShow.created_at.asc())
             else:
                 query = query.order_by(TVShow.created_at.desc())
-        else:
+        elif live_popularity is None:
             query = query.order_by(TVShow.created_at.desc())
 
-        movies = WindowPagination(query, page=page, per_page=per_page)
+        movies = live_popularity or WindowPagination(query, page=page, per_page=per_page)
         if page > 1 and not movies.items:
             abort(404)
 

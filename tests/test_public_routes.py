@@ -389,8 +389,12 @@ class PublicRouteTests(unittest.TestCase):
             self.assertEqual(self.client.get(f"/download/{ark_id}").status_code, 302)
             with app.app_context():
                 trending = get_trending_shows(limit=2, category="tv")
+            browse = self.client.get("/browse/tv?sort_by=popular")
 
         self.assertEqual([show.id for show in trending], [quiet_garden_id, ark_id])
+        self.assertEqual(browse.status_code, 200)
+        browse_body = browse.get_data(as_text=True)
+        self.assertLess(browse_body.index("Quiet Garden"), browse_body.index("The Ark"))
         leaderboard_key = _popularity_leaderboard_key("tv")
         self.assertEqual(fake_redis.expirations[leaderboard_key], 43200)
 
