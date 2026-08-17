@@ -3,7 +3,14 @@
 Run this as a one-off maintenance process, not from a web request:
     python scripts/build_catalog_indexes.py
 """
+import sys
+from pathlib import Path
+
 from sqlalchemy import text
+
+# Direct execution starts in ``scripts/``; make the application package
+# importable whether the script is launched by systemd or a shell.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tv_app.app import app, db
 
