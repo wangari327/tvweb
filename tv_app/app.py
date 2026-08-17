@@ -2,9 +2,11 @@
 import os
 import logging
 import hashlib
+import json
 import math
 import re
 from datetime import datetime
+from types import SimpleNamespace
 from urllib.parse import urlencode, urlparse, parse_qs
 from xml.sax.saxutils import escape as xml_escape
 
@@ -31,6 +33,7 @@ db.init_app(app)
 
 SITE_BASE_URL = os.environ.get('SITE_BASE_URL', 'https://ibox-tv.com').rstrip('/')
 SITE_HOST = urlparse(SITE_BASE_URL).netloc.lower()
+GENRE_HUB_CACHE_TTL = max(300, int(os.environ.get('GENRE_HUB_CACHE_TTL', '21600')))
 LEGACY_SITE_HOSTS = {
     host.strip().lower()
     for host in os.environ.get(
@@ -157,7 +160,7 @@ def category_browse_url(category: str, external: bool = False, **params) -> str:
 
 def genre_url(category: str, genre, external: bool = False, **params) -> str:
     config = CATEGORY_CONFIG.get(category, CATEGORY_CONFIG['tv'])
-    genre_name = genre.name if isinstance(genre, Genre) else str(genre)
+    genre_name = getattr(genre, 'name', str(genre))
     values = {'genre_slug': _slugify_component(genre_name), **_compact_params(params)}
     if external:
         return _primary_url_for(config['genre_endpoint'], **values)
@@ -165,16 +168,38 @@ def genre_url(category: str, genre, external: bool = False, **params) -> str:
 
 
 def _popular_genres(category: str, limit: int = 12):
-    return (
-        db.session.query(Genre, func.count(show_genres.c.tvshow_id).label('title_count'))
-        .join(show_genres, show_genres.c.genre_id == Genre.id)
-        .join(TVShow, TVShow.id == show_genres.c.tvshow_id)
-        .filter(TVShow.category == category, TVShow.download_link.isnot(None))
-        .group_by(Genre.id)
-        .order_by(func.count(show_genres.c.tvshow_id).desc(), Genre.name.asc())
-        .limit(limit)
-        .all()
-    )
+    """Return genre hubs without re-aggregating the whole catalogue per visit."""
+    cache_key = f"public:genre-hubs:{category}"
+    try:
+        cached = _redis().get(cache_key)
+        if cached:
+            rows = json.loads(cached)
+            return [(SimpleNamespace(name=name), int(title_count)) for name, title_count in rows[:limit]]
+    except Exception as exc:
+        logger.warning("Genre-hub cache read failed: %s", exc)
+
+    try:
+        rows = (
+            db.session.query(Genre.name, func.count(show_genres.c.tvshow_id).label('title_count'))
+            .join(show_genres, show_genres.c.genre_id == Genre.id)
+            .join(TVShow, TVShow.id == show_genres.c.tvshow_id)
+            .filter(TVShow.category == category, TVShow.download_link.isnot(None))
+            .group_by(Genre.name)
+            .order_by(func.count(show_genres.c.tvshow_id).desc(), Genre.name.asc())
+            .limit(100)
+            .all()
+        )
+    except Exception as exc:
+        logger.error("Genre-hub query failed: %s", exc)
+        return []
+
+    serialized_rows = [[name, int(title_count)] for name, title_count in rows]
+    try:
+        _redis().setex(cache_key, GENRE_HUB_CACHE_TTL, json.dumps(serialized_rows))
+    except Exception as exc:
+        logger.warning("Genre-hub cache write failed: %s", exc)
+
+    return [(SimpleNamespace(name=name), int(title_count)) for name, title_count in serialized_rows[:limit]]
 
 
 def _pagination_numbers(page_obj, radius: int = 2):
