@@ -346,6 +346,7 @@ def _render_index(mode: str, endpoint: str):
     page = max(request.args.get('page', 1, type=int), 1)
     per_page = 20
     base_query = _public_query(db_category)
+    trending_shows = get_trending_shows(limit=6, category=mode)
     message = None
     result_counts = {'tv': 0, 'anime': 0, 'movies': 0}
 
@@ -375,10 +376,6 @@ def _render_index(mode: str, endpoint: str):
             page=page, per_page=per_page, error_out=False
         )
         page_title = "Latest anime" if mode == 'anime' else "Latest TV shows"
-
-    # These are already the current, freshly ordered listings. Reusing them
-    # avoids a second costly sort on every homepage visit.
-    trending_shows = shows.items[:6]
 
     canonical_url, prev_url, next_url, meta_robots = _page_urls(
         endpoint,
