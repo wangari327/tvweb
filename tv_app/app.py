@@ -190,6 +190,25 @@ def _popular_genres(category: str, limit: int = 12):
     return [(SimpleNamespace(name=name), None) for name in FALLBACK_GENRE_HUBS.get(category, ())[:limit]]
 
 
+class WindowPagination:
+    """A lightweight paginator that avoids an expensive COUNT(*) per request."""
+
+    def __init__(self, query, page: int, per_page: int):
+        self.page = page
+        self.per_page = per_page
+        rows = query.offset((page - 1) * per_page).limit(per_page + 1).all()
+        self.items = rows[:per_page]
+        self.has_prev = page > 1
+        self.prev_num = page - 1 if self.has_prev else None
+        self.has_next = len(rows) > per_page
+        self.next_num = page + 1 if self.has_next else None
+        # The exact total is intentionally not queried. This still produces
+        # crawlable next/previous links while keeping the large movie catalogue
+        # responsive under Supabase's limited resources.
+        self.total = None
+        self.pages = page + 1 if self.has_next else page
+
+
 def _pagination_numbers(page_obj, radius: int = 2):
     if page_obj.pages <= 1:
         return []
@@ -327,7 +346,6 @@ def _render_index(mode: str, endpoint: str):
     page = max(request.args.get('page', 1, type=int), 1)
     per_page = 20
     base_query = _public_query(db_category)
-    trending_shows = get_trending_shows(limit=6, category=mode)
     message = None
     result_counts = {'tv': 0, 'anime': 0, 'movies': 0}
 
@@ -357,6 +375,10 @@ def _render_index(mode: str, endpoint: str):
             page=page, per_page=per_page, error_out=False
         )
         page_title = "Latest anime" if mode == 'anime' else "Latest TV shows"
+
+    # These are already the current, freshly ordered listings. Reusing them
+    # avoids a second costly sort on every homepage visit.
+    trending_shows = shows.items[:6]
 
     canonical_url, prev_url, next_url, meta_robots = _page_urls(
         endpoint,
@@ -501,7 +523,7 @@ def list_movies():
         else:
             query = query.order_by(TVShow.availability_updated_at.desc())
 
-        movies = query.paginate(page=page, per_page=per_page, error_out=False)
+        movies = WindowPagination(query, page=page, per_page=per_page)
 
         current_year = datetime.utcnow().year
         years = list(range(current_year, 1970, -1))

@@ -92,6 +92,8 @@ class TVShow(db.Model):
 
     __table_args__ = (
         Index("ix_show_name_episode_title", "show_name", "episode_title"),
+        Index("ix_tv_shows_category_availability", "category", availability_updated_at.desc()),
+        Index("ix_tv_shows_category_clicks_availability", "category", clicks.desc(), availability_updated_at.desc()),
         
         # --- NEW: Composite Unique Key ---
         # This mirrors the SQL: CREATE UNIQUE INDEX ix_tmdb_category ON tv_shows (tmdb_id, category);

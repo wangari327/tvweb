@@ -53,7 +53,7 @@
 
     <div class="catalogue-results">
         <div class="section-heading compact-heading">
-            <div><span class="eyebrow">Results</span><h2>{% if search_q %}&ldquo;{{ search_q }}&rdquo;{% else %}{{ movies.total }} movies{% endif %}</h2></div>
+            <div><span class="eyebrow">Results</span><h2>{% if search_q %}&ldquo;{{ search_q }}&rdquo;{% elif movies.total is not none %}{{ movies.total }} movies{% else %}Latest movies{% endif %}</h2></div>
             {% if search_q %}<a class="text-link" href="{{ url_for('list_movies') }}">Clear search</a>{% endif %}
         </div>
         {% if movies.items %}
