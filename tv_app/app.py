@@ -34,6 +34,11 @@ db.init_app(app)
 SITE_BASE_URL = os.environ.get('SITE_BASE_URL', 'https://ibox-tv.com').rstrip('/')
 SITE_HOST = urlparse(SITE_BASE_URL).netloc.lower()
 GENRE_HUB_CACHE_TTL = max(300, int(os.environ.get('GENRE_HUB_CACHE_TTL', '21600')))
+FALLBACK_GENRE_HUBS = {
+    'tv': ('Action', 'Adventure', 'Comedy', 'Crime', 'Drama', 'Family', 'Fantasy', 'Mystery', 'Reality', 'Science Fiction', 'Thriller'),
+    'anime': ('Action', 'Adventure', 'Animation', 'Comedy', 'Drama', 'Fantasy', 'Horror', 'Mystery', 'Romance', 'Science Fiction'),
+    'movie': ('Action', 'Adventure', 'Comedy', 'Crime', 'Drama', 'Family', 'Fantasy', 'Horror', 'Mystery', 'Romance', 'Science Fiction', 'Thriller'),
+}
 LEGACY_SITE_HOSTS = {
     host.strip().lower()
     for host in os.environ.get(
@@ -168,7 +173,7 @@ def genre_url(category: str, genre, external: bool = False, **params) -> str:
 
 
 def _popular_genres(category: str, limit: int = 12):
-    """Return genre hubs without re-aggregating the whole catalogue per visit."""
+    """Return cached genre hubs without re-aggregating the whole catalogue per visit."""
     cache_key = f"public:genre-hubs:{category}"
     try:
         cached = _redis().get(cache_key)
@@ -178,28 +183,11 @@ def _popular_genres(category: str, limit: int = 12):
     except Exception as exc:
         logger.warning("Genre-hub cache read failed: %s", exc)
 
-    try:
-        rows = (
-            db.session.query(Genre.name, func.count(show_genres.c.tvshow_id).label('title_count'))
-            .join(show_genres, show_genres.c.genre_id == Genre.id)
-            .join(TVShow, TVShow.id == show_genres.c.tvshow_id)
-            .filter(TVShow.category == category, TVShow.download_link.isnot(None))
-            .group_by(Genre.name)
-            .order_by(func.count(show_genres.c.tvshow_id).desc(), Genre.name.asc())
-            .limit(100)
-            .all()
-        )
-    except Exception as exc:
-        logger.error("Genre-hub query failed: %s", exc)
-        return []
-
-    serialized_rows = [[name, int(title_count)] for name, title_count in rows]
-    try:
-        _redis().setex(cache_key, GENRE_HUB_CACHE_TTL, json.dumps(serialized_rows))
-    except Exception as exc:
-        logger.warning("Genre-hub cache write failed: %s", exc)
-
-    return [(SimpleNamespace(name=name), int(title_count)) for name, title_count in serialized_rows[:limit]]
+    # This list keeps navigation and internal linking available during a cache
+    # miss. A full aggregation of the 73k-title catalogue is deliberately not
+    # performed in a visitor request: it can otherwise block the sole web
+    # worker long enough to make the entire site unavailable.
+    return [(SimpleNamespace(name=name), None) for name in FALLBACK_GENRE_HUBS.get(category, ())[:limit]]
 
 
 def _pagination_numbers(page_obj, radius: int = 2):
