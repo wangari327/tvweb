@@ -45,6 +45,7 @@
         </label>
         <label>Sort by
             <select name="sort_by">
+                <option value="popular" {% if current_sort_by == 'popular' %}selected{% endif %}>Most watched</option>
                 <option value="name_asc" {% if current_sort_by == 'name_asc' %}selected{% endif %}>Title A&ndash;Z</option>
                 <option value="date_desc" {% if current_sort_by == 'date_desc' %}selected{% endif %}>Recently available</option>
                 <option value="rating_desc" {% if current_sort_by == 'rating_desc' %}selected{% endif %}>Highest rated</option>
@@ -55,7 +56,7 @@
 
     <div class="catalogue-results">
         <div class="section-heading compact-heading">
-            <div><span class="eyebrow">Results</span><h2>{{ shows.total }} titles</h2></div>
+            <div><span class="eyebrow">Results</span><h2>{% if shows.total is not none %}{{ shows.total }} titles{% else %}Available now{% endif %}</h2></div>
             {% if selected_genre or selected_rating or selected_year %}<span class="filter-status">Filtered</span>{% endif %}
         </div>
 

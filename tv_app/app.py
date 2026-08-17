@@ -328,6 +328,16 @@ def _write_public_page_cache(cache_key: str, html: str):
     except Exception as exc:
         logger.warning("Public-page cache write failed: %s", exc)
 
+
+def _browse_filter_options(category: str):
+    """Return lightweight filter choices without aggregating the full catalogue."""
+    current_year = datetime.utcnow().year
+    genres = [SimpleNamespace(name=name) for name in FALLBACK_GENRE_HUBS.get(category, ())]
+    # The previous implementation joined every title to every genre and ran a
+    # minimum-year aggregate in a visitor request. Stable, useful options are
+    # preferable to holding the only database connections open for a filter UI.
+    return genres, list(range(current_year, 1969, -1))
+
 def count_search_results(category: str, query_str: str) -> int:
     """
     NEW: consistently counts results for a category to populate the search tabs.
@@ -397,12 +407,12 @@ def _render_index(mode: str, endpoint: str):
     db_category = CATEGORY_CONFIG[mode]['db']
     search_query = (request.args.get('search') or '').strip()
     page = max(request.args.get('page', 1, type=int), 1)
-    # Search result pages have no value dozens of pages deep and were being
-    # used by crawlers to keep expensive offsets open indefinitely.
-    if search_query and page > 100:
+    # The current catalogue has 114 TV pages. Leave room to grow, but reject
+    # nonsensical crawler offsets before they touch the database.
+    if page > 150:
         abort(404)
     per_page = 20
-    cache_key = f"public:page:{mode}:home:v1" if not search_query and page == 1 else None
+    cache_key = f"public:page:{mode}:home:v2:p{page}" if not search_query else None
     if cache_key:
         cached_page = _read_public_page_cache(cache_key)
         if cached_page:
@@ -410,36 +420,35 @@ def _render_index(mode: str, endpoint: str):
     base_query = _public_query(db_category)
     trending_shows = get_trending_shows(limit=6, category=mode)
     message = None
-    result_counts = {'tv': 0, 'anime': 0, 'movies': 0}
+    result_counts = {'tv': None, 'anime': None, 'movies': None}
 
     if search_query:
         try:
-            shows = base_query.filter(
-                TVShow.show_name.ilike(f'%{search_query}%')
-            ).order_by(TVShow.availability_updated_at.desc()).paginate(
-                page=page, per_page=per_page, error_out=False
+            shows = WindowPagination(
+                base_query.filter(TVShow.show_name.ilike(f'%{search_query}%')).order_by(
+                    TVShow.availability_updated_at.desc()
+                ),
+                page=page,
+                per_page=per_page,
             )
             if not shows.items:
                 message = f"No {CATEGORY_CONFIG[mode]['label'].lower()} matched your search."
         except Exception as e:
             logger.error(f"Database error during search: {e}")
             db.session.rollback()
-            shows = base_query.filter(TVShow.id == -1).paginate(
-                page=page, per_page=per_page, error_out=False
-            )
+            shows = WindowPagination(base_query.filter(TVShow.id == -1), page=page, per_page=per_page)
             message = "Search is temporarily unavailable. Please try again."
 
         page_title = f"Search results for {search_query}"
-        result_counts['tv'] = count_search_results('tv', search_query)
-        result_counts['anime'] = count_search_results('anime', search_query)
-        result_counts['movies'] = count_search_results('movie', search_query)
     else:
         # ``created_at`` tracks when a title was added from the Telegram dump
         # channel. Metadata enrichment can happen much later and must not
         # reshuffle the visitor-facing "Latest drops" rail.
-        shows = base_query.order_by(TVShow.created_at.desc()).paginate(
-            page=page, per_page=per_page, error_out=False
+        shows = WindowPagination(
+            base_query.order_by(TVShow.created_at.desc()), page=page, per_page=per_page
         )
+        if page > 1 and not shows.items:
+            abort(404)
         page_title = "Latest anime" if mode == 'anime' else "Latest TV shows"
 
     canonical_url, prev_url, next_url, meta_robots = _page_urls(
@@ -479,11 +488,25 @@ def legacy_list_shows():
 def _render_browse(category: str, endpoint: str):
     try:
         page = max(request.args.get('page', 1, type=int), 1)
+        if page > 150:
+            abort(404)
         per_page = 30
         genre_filter = request.args.get('genre')
         rating_filter = request.args.get('rating', type=int)
         year_filter = request.args.get('year', type=int)
-        sort_by = request.args.get('sort_by', 'name_asc')
+        sort_by = request.args.get('sort_by', 'popular')
+        valid_sorts = {'popular', 'name_asc', 'name_desc', 'date_asc', 'date_desc', 'rating_asc', 'rating_desc'}
+        if sort_by not in valid_sorts:
+            sort_by = 'popular'
+        cache_key = (
+            f"public:browse:{category}:{sort_by}:p{page}:v1"
+            if not genre_filter and rating_filter is None and year_filter is None
+            else None
+        )
+        if cache_key:
+            cached_page = _read_public_page_cache(cache_key)
+            if cached_page:
+                return cached_page
 
         query = _public_query(category)
 
@@ -498,7 +521,9 @@ def _render_browse(category: str, endpoint: str):
             else:
                 query = query.filter(TVShow.rating >= lower, TVShow.rating < lower + 1.0)
 
-        if sort_by == 'name_asc':
+        if sort_by == 'popular':
+            query = query.order_by(TVShow.clicks.desc(), TVShow.availability_updated_at.desc())
+        elif sort_by == 'name_asc':
             query = query.order_by(TVShow.show_name.asc())
         elif sort_by == 'name_desc':
             query = query.order_by(TVShow.show_name.desc())
@@ -511,26 +536,20 @@ def _render_browse(category: str, endpoint: str):
         elif sort_by == 'rating_desc':
             query = query.order_by(TVShow.rating.desc().nullslast())
 
-        shows_paginated = query.paginate(page=page, per_page=per_page, error_out=False)
+        shows_paginated = WindowPagination(query, page=page, per_page=per_page)
+        if page > 1 and not shows_paginated.items:
+            abort(404)
 
-        all_genres = Genre.query.join(Genre.tv_shows).filter(
-            TVShow.category == category
-        ).distinct().order_by(Genre.name).all()
-        current_year = datetime.utcnow().year
-        min_year_result = db.session.query(func.min(TVShow.year)).filter(
-            TVShow.category == category, TVShow.year.isnot(None)
-        ).scalar()
-        min_year = min_year_result if min_year_result is not None else current_year - 20
-        years = list(range(current_year, min_year - 1, -1))
+        all_genres, years = _browse_filter_options(category)
         possible_ratings = list(range(10, -1, -1))
 
         canonical_url, prev_url, next_url, meta_robots = _page_urls(endpoint, shows_paginated, extra_params={
             'genre': genre_filter or '',
             'rating': rating_filter if rating_filter is not None else '',
             'year': year_filter if year_filter is not None else '',
-            'sort_by': sort_by if sort_by != 'name_asc' else '',
+            'sort_by': sort_by if sort_by != 'popular' else '',
         })
-        return render_template('shows.html',
+        html = render_template('shows.html',
             shows=shows_paginated, genres=all_genres, ratings=possible_ratings, years=years,
             genre_hubs=_popular_genres(category),
             pagination_numbers=_pagination_numbers(shows_paginated),
@@ -540,7 +559,12 @@ def _render_browse(category: str, endpoint: str):
             site_mode=category, browse_endpoint=endpoint,
             canonical_url=canonical_url, prev_url=prev_url, next_url=next_url, meta_robots=meta_robots
         )
+        if cache_key:
+            _write_public_page_cache(cache_key, html)
+        return html
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         logger.error(f"Error in list_shows route: {e}")
         db.session.rollback()
         return render_template('500.html', title="Server Error",
@@ -567,11 +591,14 @@ def list_movies():
         per_page = 30
         search_q = (request.args.get('q') or '').strip()
         sort_by = request.args.get('sort_by', 'date_desc')
+        valid_sorts = {'date_desc', 'date_asc', 'rating_desc', 'name_asc', 'popular'}
+        if sort_by not in valid_sorts:
+            sort_by = 'date_desc'
         year_filter = request.args.get('year', type=int)
         rating_filter = request.args.get('rating', type=int)
         cache_key = (
-            'public:page:movies:home:v1'
-            if page == 1 and not search_q and sort_by == 'date_desc' and not year_filter and rating_filter is None
+            f'public:page:movies:{sort_by}:v2:p{page}'
+            if page <= 150 and not search_q and not year_filter and rating_filter is None
             else None
         )
         if cache_key:
@@ -590,7 +617,9 @@ def list_movies():
              query = query.filter(TVShow.rating >= float(rating_filter))
 
         if not search_q:
-            if sort_by == 'name_asc':
+            if sort_by == 'popular':
+                query = query.order_by(TVShow.clicks.desc(), TVShow.availability_updated_at.desc())
+            elif sort_by == 'name_asc':
                 query = query.order_by(TVShow.show_name.asc())
             elif sort_by == 'rating_desc':
                 query = query.order_by(TVShow.rating.desc().nullslast())
@@ -602,6 +631,8 @@ def list_movies():
             query = query.order_by(TVShow.created_at.desc())
 
         movies = WindowPagination(query, page=page, per_page=per_page)
+        if page > 1 and not movies.items:
+            abort(404)
 
         current_year = datetime.utcnow().year
         years = list(range(current_year, 1970, -1))
@@ -615,6 +646,7 @@ def list_movies():
 
         html = render_template('movies.html',
             movies=movies, years=years,
+            trending_shows=get_trending_shows(limit=6, category='movies'),
             genre_hubs=_popular_genres('movie'),
             pagination_numbers=_pagination_numbers(movies),
             search_q=search_q, current_sort=sort_by, selected_year=year_filter, selected_rating=rating_filter,
@@ -645,7 +677,19 @@ def _render_genre_hub(category_key: str, genre_slug: str):
         abort(404)
 
     page = max(request.args.get('page', 1, type=int), 1)
-    shows = (
+    if page > 150:
+        abort(404)
+    cache_key = (
+        f"public:genre:{category_key}:{genre_slug}:p{page}:v1"
+        if set(request.args).issubset({'page'})
+        else None
+    )
+    if cache_key:
+        cached_page = _read_public_page_cache(cache_key)
+        if cached_page:
+            return cached_page
+
+    shows = WindowPagination(
         _indexable_query(config['db'])
         .join(TVShow.genres)
         .filter(Genre.id == genre.id)
@@ -653,8 +697,9 @@ def _render_genre_hub(category_key: str, genre_slug: str):
             TVShow.clicks.desc(),
             TVShow.rating.desc().nullslast(),
             TVShow.availability_updated_at.desc().nullslast(),
-        )
-        .paginate(page=page, per_page=30, error_out=False)
+        ),
+        page=page,
+        per_page=30,
     )
     if page > 1 and not shows.items:
         abort(404)
@@ -668,7 +713,7 @@ def _render_genre_hub(category_key: str, genre_slug: str):
     page_title = f"{genre.name} {config['label']}"
     if page > 1:
         page_title += f" - Page {page}"
-    return render_template(
+    html = render_template(
         'genre.html',
         genre=genre,
         shows=shows,
@@ -682,6 +727,9 @@ def _render_genre_hub(category_key: str, genre_slug: str):
         pagination_numbers=_pagination_numbers(shows),
         genre_hubs=_popular_genres(config['db']),
     )
+    if cache_key:
+        _write_public_page_cache(cache_key, html)
+    return html
 
 
 @app.route('/tv/genre/<genre_slug>')

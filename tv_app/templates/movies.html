@@ -2,29 +2,39 @@
 {% from "_components.html" import poster_card with context %}
 
 {% block title %}{{ title }}{% endblock %}
-{% block meta_description %}Browse currently available movies by genre, year, and rating on iBOX TV.{% endblock %}
+{% block body_class %}home-page movies-home{% endblock %}
+{% block meta_description %}Discover popular movies, recent Telegram drops, and currently available titles on iBOX TV.{% endblock %}
 
 {% block content %}
-<section class="page-intro shell movie-intro">
-    <span class="eyebrow">Movie library</span>
-    <h1>Find tonight&rsquo;s movie.</h1>
-    <p>Search the available collection, compare ratings, and continue to the matching Telegram result.</p>
-    <form class="hero-search page-search" action="{{ url_for('list_movies') }}" method="get" role="search">
-        <label class="sr-only" for="movie-search">Search movies</label>
-        <input id="movie-search" type="search" name="q" value="{{ search_q }}" placeholder="Search by movie title&hellip;">
-        <button class="button button-primary" type="submit">Search</button>
-    </form>
-</section>
+{% if not search_q %}
+{% include "_feature_hero.html" %}
 
 {% if genre_hubs %}
-<section class="shell genre-discovery">
-    <div class="section-heading compact-heading"><div><span class="eyebrow">Collections</span><h2>Browse by genre</h2></div></div>
+<section class="shell genre-discovery" data-reveal>
+    <div class="section-heading compact-heading"><div class="section-title-group"><span class="section-index">Browse</span><h2>Explore movie genres</h2></div></div>
     {% set category_key = 'movies' %}
     {% include "_genre_hubs.html" %}
 </section>
 {% endif %}
 
-<section class="shell catalogue-layout">
+<section class="shell content-section" data-reveal>
+    <div class="section-heading">
+        <div class="section-title-group"><span class="section-index">01 / Trending</span><h2>Popular right now</h2></div>
+        <a class="text-link arrow-link" href="{{ url_for('list_movies', sort_by='popular') }}">See most watched <span aria-hidden="true">&rarr;</span></a>
+    </div>
+    <div class="media-rail">
+        {% for movie in trending_shows %}{{ poster_card(movie, eager=loop.index <= 3) }}{% endfor %}
+    </div>
+</section>
+{% else %}
+<section class="page-intro shell movie-intro">
+    <span class="eyebrow">Movie search</span>
+    <h1>Find a movie.</h1>
+    <p>Search the available collection and continue to the matching Telegram result.</p>
+</section>
+{% endif %}
+
+<section class="shell catalogue-layout" data-reveal>
     <form method="get" action="{{ url_for('list_movies') }}" class="filter-panel">
         <div class="filter-heading"><h2>Refine results</h2><a href="{{ url_for('list_movies') }}">Reset</a></div>
         {% if search_q %}<input type="hidden" name="q" value="{{ search_q }}">{% endif %}
@@ -42,9 +52,10 @@
         </label>
         <label>Sort by
             <select name="sort_by">
-                <option value="date_desc" {% if current_sort == 'date_desc' %}selected{% endif %}>Recently available</option>
-                <option value="date_asc" {% if current_sort == 'date_asc' %}selected{% endif %}>Oldest available</option>
+                <option value="date_desc" {% if current_sort == 'date_desc' %}selected{% endif %}>Recently added</option>
+                <option value="popular" {% if current_sort == 'popular' %}selected{% endif %}>Most watched</option>
                 <option value="rating_desc" {% if current_sort == 'rating_desc' %}selected{% endif %}>Highest rated</option>
+                <option value="date_asc" {% if current_sort == 'date_asc' %}selected{% endif %}>Oldest added</option>
                 <option value="name_asc" {% if current_sort == 'name_asc' %}selected{% endif %}>Title A&ndash;Z</option>
             </select>
         </label>
@@ -53,7 +64,10 @@
 
     <div class="catalogue-results">
         <div class="section-heading compact-heading">
-            <div><span class="eyebrow">Results</span><h2>{% if search_q %}&ldquo;{{ search_q }}&rdquo;{% elif movies.total is not none %}{{ movies.total }} movies{% else %}Latest movies{% endif %}</h2></div>
+            <div>
+                <span class="eyebrow">{% if search_q %}Search results{% else %}02 / Latest drops{% endif %}</span>
+                <h2>{% if search_q %}&ldquo;{{ search_q }}&rdquo;{% elif movies.total is not none %}{{ movies.total }} movies{% else %}Fresh from Telegram{% endif %}</h2>
+            </div>
             {% if search_q %}<a class="text-link" href="{{ url_for('list_movies') }}">Clear search</a>{% endif %}
         </div>
         {% if movies.items %}
@@ -68,4 +82,8 @@
         {% include "_pagination.html" %}
     </div>
 </section>
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{{ url_for('static', filename='feature-carousel.js') }}?v=1" defer></script>
 {% endblock %}

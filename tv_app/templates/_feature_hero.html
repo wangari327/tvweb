@@ -1,0 +1,51 @@
+{% if trending_shows %}
+<section class="feature-hero feature-carousel shell google-auto-ads-ignore" data-feature-carousel data-interval="6500" aria-roledescription="carousel" aria-label="Popular {{ 'movies' if site_mode == 'movies' else ('anime' if site_mode == 'anime' else 'TV shows') }}">
+    {% for featured in trending_shows %}
+    <article class="feature-slide{% if loop.first %} is-active{% endif %}" data-feature-slide aria-hidden="{{ 'false' if loop.first else 'true' }}">
+        <div class="feature-visual" aria-hidden="true">
+            {% if featured.poster_path %}<img class="feature-backdrop-image" src="{{ featured.poster_path }}" alt="" width="500" height="750">{% endif %}
+            <span class="feature-aura"></span>
+        </div>
+
+        <div class="feature-content">
+            <span class="feature-kicker"><i></i>{% if site_mode == 'movies' %}Popular movie pick{% elif site_mode == 'anime' %}Popular anime pick{% else %}Popular TV pick{% endif %}</span>
+            <h1>{{ featured.show_name }}</h1>
+            <div class="feature-meta" aria-label="Featured title information">
+                {% if featured.rating or featured.vote_average %}<span class="feature-score"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"/></svg>{{ '%.1f'|format(featured.rating or featured.vote_average) }}</span>{% endif %}
+                {% if featured.year %}<span>{{ featured.year }}</span>{% endif %}
+                {% if featured.episode_title and not featured.episode_title.startswith('#') %}
+                <span>{{ featured.episode_title }}</span>
+                {% else %}
+                <span>Most opened on iBOX TV</span>
+                {% endif %}
+            </div>
+            <p class="feature-summary">{{ (featured.overview or 'See the latest available update and continue to the matching Telegram result.')|truncate(176, false, '...') }}</p>
+            <div class="feature-actions">
+                <a class="button button-primary feature-primary" href="{{ content_url(featured) }}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7 8 5-8 5V7Z"/></svg>
+                    View details
+                </a>
+                <a class="button button-secondary" href="{{ category_browse_url(site_mode, sort_by='popular') }}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z"/></svg>
+                    Most watched
+                </a>
+            </div>
+        </div>
+
+        {% if featured.poster_path %}
+        <figure class="feature-poster" aria-hidden="true">
+            <img src="{{ featured.poster_path }}" alt="" width="500" height="750">
+        </figure>
+        {% endif %}
+    </article>
+    {% endfor %}
+
+    {% if trending_shows|length > 1 %}
+    <div class="feature-controls" aria-label="Popular title controls">
+        {% for featured in trending_shows %}
+        <button type="button" class="feature-dot{% if loop.first %} is-active{% endif %}" data-feature-dot data-feature-index="{{ loop.index0 }}" aria-label="Show {{ featured.show_name }}" aria-pressed="{{ 'true' if loop.first else 'false' }}"></button>
+        {% endfor %}
+    </div>
+    {% endif %}
+</section>
+{% endif %}

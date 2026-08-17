@@ -13,13 +13,13 @@
     </nav>
     <span class="eyebrow">Genre collection</span>
     <h1>{{ genre.name }} {{ category_label }}</h1>
-    <p>Browse {{ shows.total }} currently available {{ genre.name|lower }} titles, then open a listing for its latest availability, cast, trailer, and related picks.</p>
+    <p>Browse currently available {{ genre.name|lower }} titles, then open a listing for its latest availability, cast, trailer, and download details.</p>
     {% include "_genre_hubs.html" %}
 </section>
 
 <section class="shell content-section genre-results">
     <div class="section-heading compact-heading">
-        <div><span class="eyebrow">Collection</span><h2>{{ shows.total }} titles</h2></div>
+        <div><span class="eyebrow">Collection</span><h2>{% if shows.total is not none %}{{ shows.total }} titles{% else %}Available now{% endif %}</h2></div>
         <a class="text-link" href="{{ category_home_url(category_key) }}">Back to {{ category_label|lower }}</a>
     </div>
     {% if shows.items %}

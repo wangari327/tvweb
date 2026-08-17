@@ -24,9 +24,9 @@
     </div>
 
     <nav class="category-tabs" aria-label="Search categories">
-        <a href="{{ category_home_url('tv', search=search_query) }}" {% if site_mode == 'tv' %}aria-current="page"{% endif %}>TV <span>{{ result_counts.tv }}</span></a>
-        <a href="{{ category_home_url('anime', search=search_query) }}" {% if site_mode == 'anime' %}aria-current="page"{% endif %}>Anime <span>{{ result_counts.anime }}</span></a>
-        <a href="{{ category_home_url('movies', q=search_query) }}">Movies <span>{{ result_counts.movies }}</span></a>
+        <a href="{{ category_home_url('tv', search=search_query) }}" {% if site_mode == 'tv' %}aria-current="page"{% endif %}>TV{% if result_counts.tv is not none %} <span>{{ result_counts.tv }}</span>{% endif %}</a>
+        <a href="{{ category_home_url('anime', search=search_query) }}" {% if site_mode == 'anime' %}aria-current="page"{% endif %}>Anime{% if result_counts.anime is not none %} <span>{{ result_counts.anime }}</span>{% endif %}</a>
+        <a href="{{ category_home_url('movies', q=search_query) }}">Movies{% if result_counts.movies is not none %} <span>{{ result_counts.movies }}</span>{% endif %}</a>
     </nav>
 
     {% if message %}
@@ -42,46 +42,7 @@
     {% endif %}
 </section>
 {% else %}
-{% set featured = trending_shows[0] if trending_shows else (shows.items[0] if shows.items else none) %}
-{% if featured %}
-<section class="feature-hero shell google-auto-ads-ignore" data-reveal>
-    <div class="feature-visual" aria-hidden="true">
-        {% if featured.poster_path %}<img class="feature-backdrop-image" src="{{ featured.poster_path }}" alt="" width="500" height="750">{% endif %}
-        <span class="feature-aura"></span>
-    </div>
-
-    <div class="feature-content">
-        <span class="feature-kicker"><i></i>{{ 'Find your next anime' if site_mode == 'anime' else 'Find your next show' }}</span>
-        <h1>{{ featured.show_name }}</h1>
-        <div class="feature-meta" aria-label="Featured title information">
-            {% if featured.rating or featured.vote_average %}<span class="feature-score"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"/></svg>{{ '%.1f'|format(featured.rating or featured.vote_average) }}</span>{% endif %}
-            {% if featured.year %}<span>{{ featured.year }}</span>{% endif %}
-            {% if featured.episode_title and not featured.episode_title.startswith('#') %}
-            <span>{{ featured.episode_title }}</span>
-            {% else %}
-            <span>Latest {{ 'anime' if featured.category == 'anime' else 'TV' }} update</span>
-            {% endif %}
-        </div>
-        <p class="feature-summary">{{ (featured.overview or 'See the latest available update and continue to the matching Telegram result.')|truncate(176, false, '...') }}</p>
-        <div class="feature-actions">
-            <a class="button button-primary feature-primary" href="{{ content_url(featured) }}">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7 8 5-8 5V7Z"/></svg>
-                View details
-            </a>
-            <a class="button button-secondary" href="{{ category_browse_url(site_mode) }}">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z"/></svg>
-                Browse all
-            </a>
-        </div>
-    </div>
-
-    {% if featured.poster_path %}
-    <figure class="feature-poster" aria-hidden="true">
-        <img src="{{ featured.poster_path }}" alt="" width="500" height="750">
-    </figure>
-    {% endif %}
-</section>
-{% endif %}
+{% include "_feature_hero.html" %}
 
 {% if genre_hubs %}
 <section class="shell genre-discovery" data-reveal>
@@ -96,7 +57,7 @@
 <section class="shell content-section" data-reveal>
     <div class="section-heading">
         <div class="section-title-group"><span class="section-index">01 / Trending</span><h2>Popular right now</h2></div>
-        <a class="text-link arrow-link" href="{{ category_browse_url(site_mode, sort_by='rating_desc') }}">See top rated <span aria-hidden="true">&rarr;</span></a>
+        <a class="text-link arrow-link" href="{{ category_browse_url(site_mode, sort_by='popular') }}">See most watched <span aria-hidden="true">&rarr;</span></a>
     </div>
     <div class="media-rail">
         {% for show in trending_shows %}{{ poster_card(show, eager=loop.index <= 3) }}{% endfor %}
@@ -106,7 +67,7 @@
 <section class="shell content-section" data-reveal>
     <div class="section-heading">
         <div class="section-title-group"><span class="section-index">02 / New</span><h2>Latest drops</h2></div>
-        <span class="result-count">{{ shows.total }} titles</span>
+        <span class="result-count">{% if shows.total is not none %}{{ shows.total }} titles{% else %}Fresh from Telegram{% endif %}</span>
     </div>
     <div class="media-grid">
         {% for show in shows.items %}{{ poster_card(show) }}{% endfor %}
@@ -118,5 +79,8 @@
     {% set page_obj = shows %}
     {% include "_pagination.html" %}
 </div>
+{% endblock %}
 
+{% block scripts_extra %}
+<script src="{{ url_for('static', filename='feature-carousel.js') }}?v=1" defer></script>
 {% endblock %}
