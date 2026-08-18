@@ -428,7 +428,7 @@ h3 { font-size: 1rem; }
   .mode-switcher a:hover { color: var(--text); background: rgba(255,255,255,.06); }
   .mode-switcher a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); }
   .mode-switcher a:active { transform: scale(.92); }
-  .mode-switcher svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.75; }
+  .mode-switcher i { font-size: 16px; line-height: 1; }
   .header-actions { margin-left: 0; }
   .menu-toggle { display: block; }
   .site-nav { position: absolute; left: 15px; right: 15px; top: 70px; display: none; padding: 9px; border: 1px solid var(--line); border-radius: 14px; background: rgba(13,17,26,.98); box-shadow: var(--shadow); animation: menu-in .22s ease both; }
@@ -462,7 +462,7 @@ h3 { font-size: 1rem; }
   .brand-wordmark em { font-size: .5rem; }
   .mode-switcher { gap: 1px; padding: 3px; border-radius: 11px; }
   .mode-switcher a { width: 29px; height: 29px; }
-  .mode-switcher svg { width: 16px; height: 16px; }
+  .mode-switcher i { font-size: 15px; }
   .search-toggle { width: 38px; min-height: 38px; justify-content: center; padding: 0; }
   .search-toggle span, .search-toggle kbd { display: none; }
   .menu-toggle { width: 38px; height: 38px; }
