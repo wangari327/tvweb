@@ -429,7 +429,7 @@ h3 { font-size: 1rem; }
   .mode-switcher a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); }
   .mode-switcher a:active { transform: scale(.92); }
   .mode-switcher i { font-size: 16px; line-height: 1; }
-  .header-actions { margin-left: 0; }
+  .header-actions { margin-left: auto; }
   .menu-toggle { display: block; }
   .site-nav { position: absolute; left: 15px; right: 15px; top: 70px; display: none; padding: 9px; border: 1px solid var(--line); border-radius: 14px; background: rgba(13,17,26,.98); box-shadow: var(--shadow); animation: menu-in .22s ease both; }
   .site-nav.is-open { display: grid; }
