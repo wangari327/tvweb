@@ -422,8 +422,8 @@ h3 { font-size: 1rem; }
 
 @media (max-width: 860px) {
   .shell { width: min(calc(100% - 30px), var(--shell)); }
-  .header-inner { min-height: 62px; gap: 10px; }
-  .mode-switcher { display: flex; align-items: center; gap: 2px; margin-left: auto; padding: 3px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.03); }
+  .header-inner { position: relative; min-height: 62px; gap: 10px; }
+  .mode-switcher { position: absolute; left: 50%; display: flex; align-items: center; gap: 2px; margin-left: 0; padding: 3px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.03); transform: translateX(-50%); }
   .mode-switcher a { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 8px; color: var(--muted); text-decoration: none; transition: color .2s ease, background .2s ease, transform .2s ease; }
   .mode-switcher a:hover { color: var(--text); background: rgba(255,255,255,.06); }
   .mode-switcher a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); }
@@ -543,6 +543,28 @@ h3 { font-size: 1rem; }
 }
 
 @keyframes menu-in { from { opacity: 0; transform: translateY(-8px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+/* Rotating popular-title hero. The first slide remains visible without JavaScript. */
+.feature-carousel { display: block; min-height: 500px; }
+.feature-carousel .feature-slide { position: absolute; inset: 0; display: grid; min-height: inherit; grid-template-columns: minmax(0, 1fr) minmax(250px, .44fr); align-items: end; isolation: isolate; opacity: 0; transform: translateY(10px); transition: opacity .45s ease, transform .55s cubic-bezier(.2,.8,.2,1); visibility: hidden; }
+.feature-carousel .feature-slide.is-active { opacity: 1; transform: translateY(0); visibility: visible; }
+.feature-carousel .feature-slide:not(.is-active) { pointer-events: none; }
+.feature-carousel .feature-controls { position: absolute; right: 28px; bottom: 24px; z-index: 5; display: flex; gap: 7px; }
+.feature-carousel .feature-dot { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 999px; background: rgba(255,255,255,.37); box-shadow: none; cursor: pointer; transition: width .2s, background .2s; }
+.feature-carousel .feature-dot.is-active { width: 25px; background: var(--accent); }
+.feature-carousel .feature-dot:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+
+@media (max-width: 860px) {
+  .feature-carousel .feature-slide { grid-template-columns: minmax(0, 1fr) 220px; }
+}
+
+@media (max-width: 620px) {
+  .feature-carousel { min-height: 468px; }
+  .feature-carousel .feature-slide { grid-template-columns: 1fr; }
+  .feature-carousel .feature-content { align-self: end; }
+  .feature-carousel .feature-controls { right: 19px; bottom: 16px; }
+  .feature-carousel .feature-poster { position: absolute; right: -4%; top: -10%; width: 62%; height: 70%; margin: 0; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
