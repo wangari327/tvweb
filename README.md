@@ -1,294 +1,269 @@
-# 📺 iBOX TV (Hybrid Platform) — The Complete Guide
+# iBOX TV
 
-> **Version:** Hybrid v2.0 — TV + Anime + Movies with Infinite Backfill Engine
+iBOX TV is a Flask catalogue for TV shows, anime, and movies. It ingests
+availability updates from Telegram, enriches titles with TMDB metadata, and
+routes visitors to the available source. The public site has one canonical
+domain, category landing pages, detail pages, XML sitemaps, a Redis-backed
+popularity leaderboard, and AdSense-ready page layouts.
 
-This guide explains how to deploy **iBOX TV**, a production-grade streaming platform that serves **three content verticals from a single codebase**. It also documents the **Infinite Backfill Engine**, which continuously imports movies from external MongoDB sources while respecting API rate limits.
+The live project is intended to run at `https://ibox-tv.com`. Historic hosts
+redirect to the canonical paths configured by `SITE_BASE_URL` and
+`LEGACY_SITE_HOSTS`.
 
----
+## What runs in production
 
-## 🏗️ 1. How It Works (Architecture Overview)
+| Process | Purpose |
+| --- | --- |
+| Flask + Gunicorn | Public catalogue, search, sitemaps, detail pages, redirects |
+| Celery worker | Telegram ingestion, metadata enrichment, movie backfills |
+| Celery beat | Scheduled update and leaderboard-reset jobs |
+| PostgreSQL | Catalogue, metadata, genres, and ingestion state |
+| Redis | Celery broker/results, application cache, and rolling popularity leaderboard |
+| Nginx (VPS only) | TLS termination, static files, and reverse proxying |
 
-### 1.1 Canonical URL Architecture
+PostgreSQL and Redis are required in every production environment. MongoDB is
+only required when using the optional movie-backfill source.
 
-The public catalogue now uses one canonical domain. Historic subdomains permanently redirect to category paths on that domain.
+## Repository layout
 
-| Canonical path | Content served | Database filter |
-|------|---------------|----------------|
-| **ibox-tv.com/** and **/browse/tv** | TV shows | `category = 'tv'` |
-| **ibox-tv.com/anime** and **/browse/anime** | Anime | `category = 'anime'` |
-| **ibox-tv.com/movies** | Movies | `category = 'movie'` |
+| Path | Use |
+| --- | --- |
+| `tv_app/` | Flask application, templates, assets, models, and Celery tasks |
+| `scripts/initialize_database.py` | Creates the current schema in a new database |
+| `scripts/migrate_seo_enrichment.py` | Targeted migration for an older, existing database |
+| `scripts/backfill_seo_metadata.py` | Enriches existing titles with TMDB metadata |
+| `scripts/build_catalog_indexes.py` | Builds catalogue indexes without blocking public traffic |
+| `deploy/` | Reproducible Ubuntu bootstrap, release, systemd, and Nginx tooling |
+| `Procfile` | Web, worker, and scheduler process definitions for PaaS platforms |
 
-Detail URLs use stable TMDB-ID and title paths, such as `/tv/123-the-ark`. Legacy `/show/<slug>` URLs and wrong-category paths return permanent redirects to the canonical detail URL.
+## Configuration
 
-The root `/sitemap.xml` is a sitemap index. It links to category-specific sitemap files capped at 25,000 complete, available records each. Search and filter URLs remain crawlable but use `noindex,follow`; they must not be blocked in `robots.txt`.
+Copy `.env.example` to `.env` for local development. On a VPS the deploy
+scripts keep the real file at `/opt/ibox-tv/shared/.env` and copy it into each
+immutable release with restrictive permissions.
 
-### 1.2 Backend Components
-
-- **Flask + Gunicorn** — Handles all HTTP traffic
-- **Celery + Redis** — Background workers (ingest, backfill, scheduled jobs)
-- **PostgreSQL** — Primary application database
-- **MongoDB (External)** — Read-only movie source for backfilling
-
----
-
-## 🧰 2. Server Prerequisites
-
-### Operating System
-- Ubuntu **20.04 / 22.04 LTS** (clean VPS recommended)
-
-### 2.1 Install Required System Packages
-
-Run as **root**:
-
-```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y \
-  python3.8 python3.8-venv python3.8-dev \
-  build-essential git libpq-dev \
-  nginx redis-server supervisor \
-  certbot python3-certbot-nginx
-```
-
----
-
-## 📦 3. Application Installation
-
-Clone the repository and prepare the Python environment.
-
-```bash
-cd /root
-git clone https://github.com/<your-username>/tvweb.git
-cd /root/tvweb
-
-# Create isolated virtual environment
-python3.8 -m venv venv
-
-# Upgrade build tools
-./venv/bin/pip install -U pip wheel
-
-# Install dependencies
-./venv/bin/pip install -r requirements.txt
-```
-
----
-
-## 🔐 4. Configuration (.env File)
-
-Create the environment file:
-
-```bash
-nano /root/tvweb/.env
-```
-
-Fill **every value carefully**.
-
-### 🌐 Core Web & Security
+At a minimum, set the following real values:
 
 ```ini
-SECRET_KEY=change_this_to_something_very_long_and_random
-FLASK_ENV=production
-
-# Primary canonical domain (SEO + absolute URLs)
-SITE_BASE_URL=https://ibox-tv.com
-
-# Historic hosts that should permanently redirect to SITE_BASE_URL
-LEGACY_SITE_HOSTS=anime.ibox-tv.com,movies.ibox-tv.com,www.ibox-tv.com
-
-# Admin panel master password
-ADMIN_TOKEN=YourSuperSecretPassword
-NUKE_COOKIE_TTL_DAYS=30
+SECRET_KEY=<long random secret>
+ADMIN_TOKEN=<different long random secret>
+SITE_BASE_URL=https://your-domain.example
+DATABASE_URL=postgresql://user:password@host:5432/database
+REDIS_URL=redis://host:6379/0
+TELEGRAM_BOT_TOKEN=<telegram bot token>
+TELEGRAM_CHANNEL_ID=-100...
+TELEGRAM_ANIME_CHANNEL_ID=-100...
+TMDB_BEARER_TOKEN=<tmdb bearer token>
 ```
 
-### 🗄️ Database & Cache
+`TMDB_BACKFILL_TOKENS`, `MONGO_URI_1`, `MONGO_URI_2`, `MONGO_DB_NAME`, and
+`MONGO_COL_NAME` are optional unless the movie backfill engine is enabled.
+Keep all production secrets out of Git. The repository ignores `.env` while
+retaining the safe `.env.example` template.
 
-```ini
-DATABASE_URL=postgresql://myuser:mypassword@localhost/tv_shows_db
-REDIS_URL=redis://localhost:6379/0
-```
+## Local development
 
-### 🎬 Movie Backfill Engine (MongoDB Sources)
-
-The backfill engine scans **multiple MongoDB clusters sequentially**.
-
-```ini
-MONGO_URI_1=mongodb+srv://user:pass@cluster1.mongodb.net/?retryWrites=true&w=majority
-MONGO_URI_2=mongodb+srv://user:pass@cluster2.mongodb.net/?retryWrites=true&w=majority
-
-MONGO_DB_NAME=Huswy
-MONGO_COL_NAME=Husw
-```
-
-### 🍿 TMDb & Telegram Integration
-
-```ini
-# Rotated automatically to avoid 429 rate limits
-TMDB_BACKFILL_TOKENS=eyJhbGciOi...,eyJhbGciOi...
-
-# Default token for user searches
-TMDB_BEARER_TOKEN=eyJhbGciOi...
-
-# Telegram bot username (no @)
-BOT_USERNAME=iBoxTVBot
-
-TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
-TELEGRAM_CHANNEL_ID=-1001234567890        # TV
-TELEGRAM_ANIME_CHANNEL_ID=-1009876543210  # Anime
-```
-
----
-
-## 🗄️ 5. Database Setup (PostgreSQL)
-
-### 5.1 Create Database & User
+Use Python 3.10 or newer, PostgreSQL, and Redis.
 
 ```bash
-sudo -u postgres psql
-CREATE DATABASE tv_shows_db;
-CREATE USER myuser WITH PASSWORD 'mypassword';
-GRANT ALL PRIVILEGES ON DATABASE tv_shows_db TO myuser;
-\q
+git clone https://github.com/wangari327/tvweb.git
+cd tvweb
+python3 -m venv .venv
+. .venv/bin/activate
+pip install --upgrade pip wheel
+pip install -r requirements.txt
+cp .env.example .env
+# Edit .env before continuing.
+python scripts/initialize_database.py
+flask --app tv_app.app run
 ```
 
-### 5.2 Create Tables
+Run the asynchronous processes in separate terminals after the web server is
+up:
 
 ```bash
-./venv/bin/python - <<'PY'
-from tv_app.app import app
-from tv_app.models import db
-
-with app.app_context():
-    db.create_all()
-
-print("Tables created successfully")
-PY
+.venv/bin/celery -A tv_app.tasks worker --loglevel=INFO --concurrency=1
+.venv/bin/celery -A tv_app.tasks beat --loglevel=INFO
 ```
 
-### 5.3 Hybrid Index & Smart Search
+For an existing database, do **not** use an old hand-written `CREATE TABLE`
+script. Run a purpose-built migration from `scripts/` when a release calls for
+one, then deploy the application. `scripts/initialize_database.py` is
+idempotent and is the correct command for a brand-new database.
+
+## Fresh Ubuntu VPS deployment
+
+The `deploy/` scripts support Ubuntu 22.04 and 24.04 and use systemd rather
+than Supervisor. They install OS prerequisites, create an unprivileged service
+account, build a shared virtual environment, make immutable releases, and
+serve the application through Nginx. The default layout is:
+
+```text
+/opt/ibox-tv/
+  repository/       deployment checkout
+  releases/<commit>/ immutable application releases
+  current -> releases/<commit>
+  shared/.env       only copy of the secrets outside active releases
+  shared/venv/      Python virtual environment
+```
+
+### 1. Prepare DNS and database services
+
+Point the domain's `A` record to the VPS. Decide whether PostgreSQL will be
+local or managed; managed PostgreSQL is usually the easier recovery and backup
+choice. Redis may also be managed, though the bootstrap installs a local Redis
+server by default.
+
+To host PostgreSQL on the VPS, include `INSTALL_POSTGRES=1` in the bootstrap
+command and create a least-privilege database user before the first release:
 
 ```bash
-sudo -u postgres psql -d tv_shows_db -c "
-DROP INDEX IF EXISTS ix_tv_shows_tmdb_id;
-CREATE UNIQUE INDEX IF NOT EXISTS ix_tmdb_category
-ON tv_shows (tmdb_id, category);
-
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-"
+sudo -u postgres createuser --pwprompt ibox
+sudo -u postgres createdb --owner=ibox ibox_tv
 ```
 
----
+Set the matching `DATABASE_URL` in the environment file. The PostgreSQL user
+must be allowed to create the `pg_trgm` extension, or an administrator must
+run `CREATE EXTENSION IF NOT EXISTS pg_trgm;` once on the database.
 
-## ⚙️ 6. Process Management (Supervisor)
+### 2. Bootstrap the server
 
-Create configuration:
+Log in as root (or a sudo-capable user), clone this repository somewhere
+temporary, then run the bootstrap. It deliberately does not start the app
+until secrets are configured.
 
 ```bash
-nano /etc/supervisor/conf.d/ibox-tv.conf
+git clone https://github.com/wangari327/tvweb.git /tmp/tvweb-bootstrap
+cd /tmp/tvweb-bootstrap
+REPOSITORY_URL=https://github.com/wangari327/tvweb.git \
+  INSTALL_POSTGRES=1 \
+  bash deploy/bootstrap_ubuntu.sh
 ```
 
-```ini
-[program:ibox-gunicorn]
-directory=/root/tvweb
-command=/root/tvweb/venv/bin/gunicorn -w 3 -b 127.0.0.1:8000 tv_app.app:app
-user=root
-autostart=true
-autorestart=true
-stdout_logfile=/var/log/ibox/gunicorn.out.log
-stderr_logfile=/var/log/ibox/gunicorn.err.log
-environment=PYTHONPATH="/root/tvweb"
-
-[program:ibox-celery]
-directory=/root/tvweb
-command=/root/tvweb/venv/bin/celery -A tv_app.tasks worker --loglevel=INFO --concurrency=2
-user=root
-autostart=true
-autorestart=true
-stdout_logfile=/var/log/ibox/celery.out.log
-stderr_logfile=/var/log/ibox/celery.err.log
-environment=PYTHONPATH="/root/tvweb"
-
-[program:ibox-celerybeat]
-directory=/root/tvweb
-command=/root/tvweb/venv/bin/celery -A tv_app.tasks beat --loglevel=INFO
-user=root
-autostart=true
-autorestart=true
-stdout_logfile=/var/log/ibox/celerybeat.out.log
-stderr_logfile=/var/log/ibox/celerybeat.err.log
-environment=PYTHONPATH="/root/tvweb"
-```
-
-### Start Services
+Omit `INSTALL_POSTGRES=1` when `DATABASE_URL` points to a managed provider.
+Then edit the configuration:
 
 ```bash
-sudo mkdir -p /var/log/ibox
-sudo supervisorctl reread
-sudo supervisorctl update
-sudo supervisorctl restart all
+nano /opt/ibox-tv/shared/.env
 ```
 
----
-
-## 🌐 7. Nginx Setup (Multi-Domain)
-
-**File:** `/etc/nginx/sites-available/one.ibox-tv.com`
-
-```nginx
-server {
-    listen 80;
-    server_name ibox-tv.com www.ibox-tv.com anime.ibox-tv.com movies.ibox-tv.com;
-
-    location / {
-        include proxy_params;
-        proxy_pass http://127.0.0.1:8000;
-    }
-
-    location /static {
-        alias /root/tvweb/tv_app/static;
-        expires 30d;
-        add_header Cache-Control "public, max-age=2592000";
-    }
-}
-```
-
-### Enable & Secure
+### 3. Create the first release and start services
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/one.ibox-tv.com /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
+APP_ROOT=/opt/ibox-tv APP_USER=ibox \
+  bash /opt/ibox-tv/repository/deploy/deploy_release.sh
 
-sudo certbot --nginx --expand \
-  -d ibox-tv.com -d www.ibox-tv.com \
-  -d anime.ibox-tv.com -d movies.ibox-tv.com
+APP_ROOT=/opt/ibox-tv APP_USER=ibox \
+  bash /opt/ibox-tv/repository/deploy/install_systemd.sh
 ```
 
----
+The release command installs Python dependencies, creates missing database
+objects, switches the `current` symlink atomically, and checks Gunicorn on
+`127.0.0.1:8000` when services already exist. It never calls `FLUSHALL` on
+Redis: Celery uses that Redis instance as its broker.
 
-## 🧑‍💻 8. Operations Manual
+### 4. Add Nginx and TLS
 
-### ☢️ The Nuke Panel
+```bash
+DOMAIN=your-domain.example APP_ROOT=/opt/ibox-tv \
+  bash /opt/ibox-tv/repository/deploy/install_nginx.sh
 
-Access: `https://ibox-tv.com/nuke`
+certbot --nginx -d your-domain.example -d www.your-domain.example
+```
 
-**Controls:**
-- **Start** — Begin infinite MongoDB backfill
-- **Pause** — Stop after current batch
-- **Reset** — Clear Redis checkpoint
-- **Purge** — ⚠️ Delete all movie records
+If the hostname is proxied through Cloudflare, use a DNS challenge or
+temporarily switch the record to **DNS only** while Certbot performs HTTP
+validation. After the certificate is issued, re-enable the proxy if desired.
 
----
+The supplied Nginx configuration caches static assets only. It intentionally
+does not cache dynamic catalogue pages, avoiding stale pages immediately after
+a deployment; Redis already supplies the application-level cache.
 
-## 🛠️ Troubleshooting
+## Deploying an update on the VPS
 
-| Problem | Solution |
-|-------|---------|
-| Search shows `0` | Ensure `pg_trgm` is enabled |
-| `No such column: category` | Recreate tables |
-| Backfill slow / stops | Add more TMDb tokens |
-| Locked out of Nuke | `redis-cli DEL nuke:enabled` |
+After changes are pushed to `main`, update the deployment checkout and run the
+release script as root:
 
----
+```bash
+git -C /opt/ibox-tv/repository pull --ff-only origin main
+APP_ROOT=/opt/ibox-tv APP_USER=ibox \
+  bash /opt/ibox-tv/repository/deploy/deploy_release.sh
+```
 
-## ✅ Deployment Complete
+Useful operational checks:
 
-Your **iBOX TV Hybrid Platform** is live, scalable, and ready for continuous ingestion 🚀
+```bash
+systemctl status ibox-tv-web ibox-tv-worker ibox-tv-beat
+journalctl -u ibox-tv-web -u ibox-tv-worker -u ibox-tv-beat -f
+curl -fsS http://127.0.0.1:8000/robots.txt
+```
 
+To roll back, point `current` to a known-good release and restart the three
+services. Keep several confirmed releases until the new version is stable:
+
+```bash
+ln -sfn /opt/ibox-tv/releases/<known-good-commit> /opt/ibox-tv/current
+systemctl restart ibox-tv-web ibox-tv-worker ibox-tv-beat
+```
+
+An older iBOX TV Nginx setup may have a dynamic `proxy_cache`. When migrating
+that setup, stop Nginx, clear only its configured iBOX cache directory, and
+restart it after changing a release. Do not clear the entire Redis database.
+
+## Railway, Heroku, and similar PaaS platforms
+
+Use managed PostgreSQL and Redis, then deploy **three processes from this same
+repository**. The checked-in `Procfile` provides the commands:
+
+| PaaS service | Process type / start command | Instances |
+| --- | --- | --- |
+| Public web service | `web` | 1 or more |
+| Background worker | `worker` | exactly 1 on a small catalogue |
+| Scheduler | `beat` | exactly 1 |
+
+Set every value from the Configuration section as the platform's environment
+variables. Set `SITE_BASE_URL` to the final HTTPS custom domain, attach that
+domain, and run `python scripts/initialize_database.py` once in a release shell
+or one-off job before starting traffic. Never run more than one `beat` process,
+or scheduled Telegram and maintenance jobs will run twice.
+
+On Railway, create three services from the same repository and assign the web,
+worker, and beat commands above; attach its PostgreSQL and Redis services. On
+Heroku or a comparable Procfile platform, provision equivalent Postgres/Redis
+add-ons and scale one each of `web`, `worker`, and `beat`. PaaS platforms do
+not need the Ubuntu `deploy/` directory or Nginx.
+
+## Search, SEO, ads, and cache notes
+
+- Canonical URLs and permanent legacy-host redirects are generated from
+  `SITE_BASE_URL` and `LEGACY_SITE_HOSTS`.
+- `/sitemap.xml` is a sitemap index with category sitemaps. Submit that URL in
+  Google Search Console; keep search/filter pages crawlable but `noindex`.
+- Detail pages are included only when a title has a valid availability link,
+  poster, overview, name, and slug. The metadata-enrichment scripts improve
+  page quality for indexing.
+- `ads.txt` is intentionally retained for AdSense. Ad slots are page-layout
+  code, not part of the deployment cache.
+- Redis leaderboard and cache keys expire automatically. Configure Redis with
+  a memory limit and `noeviction` when it doubles as Celery's broker, so memory
+  pressure does not discard queued tasks.
+
+## Validation before publishing a change
+
+```bash
+pytest -q
+python -m py_compile tv_app/*.py scripts/*.py
+```
+
+For a release that changes templates or styles, also check the homepage, all
+three category landing pages, browse/search, a detail page, `robots.txt`,
+`sitemap.xml`, and mobile navigation after deploy.
+
+## Security and backups
+
+- Use long, unique values for `SECRET_KEY` and `ADMIN_TOKEN`.
+- Keep PostgreSQL backups and test a restore before relying on them.
+- Restrict port 8000 to localhost; only Nginx should expose HTTP/HTTPS.
+- Restrict PostgreSQL and Redis to private networking or localhost.
+- Rotate Telegram, TMDB, database, and Redis credentials if they are ever
+  exposed in a terminal, screenshot, chat, or commit.

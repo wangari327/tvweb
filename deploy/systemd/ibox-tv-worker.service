@@ -1,0 +1,20 @@
+[Unit]
+Description=iBOX TV Celery worker
+After=network.target redis-server.service ibox-tv-web.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__APP_USER__
+Group=__APP_USER__
+WorkingDirectory=__APP_ROOT__/current
+EnvironmentFile=__APP_ROOT__/shared/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=__APP_ROOT__/shared/venv/bin/celery -A tv_app.tasks worker --loglevel=INFO --concurrency=1 --max-tasks-per-child=1000
+Restart=always
+RestartSec=5
+TimeoutStopSec=60
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target
