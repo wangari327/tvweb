@@ -87,8 +87,19 @@ document.addEventListener('DOMContentLoaded', () => {
           entry.target.classList.add('is-revealed');
           observer.unobserve(entry.target);
         });
-      }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
-      revealItems.forEach((item) => observer.observe(item));
+      }, { rootMargin: '0px 0px 85% 0px', threshold: 0.01 });
+
+      // Never hide content a visitor can already reach without scrolling.
+      // The old threshold waited for a scroll event on some mobile browsers,
+      // leaving the popular and latest sections apparently absent on load.
+      const revealBoundary = window.innerHeight * 2;
+      revealItems.forEach((item) => {
+        if (item.getBoundingClientRect().top < revealBoundary) {
+          item.classList.add('is-revealed');
+        } else {
+          observer.observe(item);
+        }
+      });
     }
   }
 
