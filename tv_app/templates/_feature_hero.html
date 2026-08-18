@@ -33,9 +33,9 @@
         </div>
 
         {% if featured.poster_path %}
-        <figure class="feature-poster" aria-hidden="true">
-            <img src="{{ featured.poster_path }}" alt="" width="500" height="750">
-        </figure>
+        <a class="feature-poster" href="{{ content_url(featured) }}" aria-label="View details for {{ featured.show_name }}">
+            <img src="{{ featured.poster_path }}" alt="{{ featured.show_name }} poster" width="500" height="750">
+        </a>
         {% endif %}
     </article>
     {% endfor %}

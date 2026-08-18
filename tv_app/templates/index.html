@@ -70,7 +70,9 @@
         <span class="result-count">{% if shows.total is not none %}{{ shows.total }} titles{% else %}Fresh from Telegram{% endif %}</span>
     </div>
     <div class="media-grid">
-        {% for show in shows.items %}{{ poster_card(show) }}{% endfor %}
+        {# Load the first mobile viewport's worth immediately. Native lazy
+           loading was delaying these posters until after the visitor scrolled. #}
+        {% for show in shows.items %}{{ poster_card(show, eager=loop.index <= 6) }}{% endfor %}
     </div>
 </section>
 {% endif %}
