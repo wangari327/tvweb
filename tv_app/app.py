@@ -84,6 +84,7 @@ CATEGORY_CONFIG = {
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+_redis_client = None
 
 # --- HELPERS ---
 
@@ -1182,7 +1183,17 @@ def category_sitemap(category, page):
 
 # ----------------------------- Nuke panel (auth + dupes) -----------------------------
 def _redis():
-    return Redis.from_url(os.environ.get('REDIS_URL', 'redis://localhost:6379/0'), decode_responses=True)
+    """Reuse the process-local Redis pool instead of reconnecting per helper call."""
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = Redis.from_url(
+            os.environ.get('REDIS_URL', 'redis://localhost:6379/0'),
+            decode_responses=True,
+            socket_connect_timeout=3,
+            socket_timeout=3,
+            health_check_interval=30,
+        )
+    return _redis_client
 
 def _admin_token():
     return os.environ.get('ADMIN_TOKEN', '')
