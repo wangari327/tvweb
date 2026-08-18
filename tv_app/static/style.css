@@ -398,6 +398,11 @@ h3 { font-size: 1rem; }
 .footer-bottom a { color: var(--muted); text-decoration: none; }
 .footer-bottom a:hover { color: var(--accent); }
 
+/* Keep Auto Ads out of structural chrome, but retain eligible, content-rich
+   placements. AdSense explicitly supports collapsing units returned empty. */
+.google-auto-ads-ignore { google-auto-ads: ignore; }
+ins.adsbygoogle[data-ad-status="unfilled"] { display: none !important; }
+
 /* Consent component: compact, readable, and non-obstructive */
 #termsfeed-com---nb { inset: auto 16px 16px auto !important; width: min(500px, calc(100vw - 32px)) !important; max-width: 500px !important; height: auto !important; }
 #termsfeed-com---nb .cc-nb-main-container { padding: 22px !important; border: 1px solid var(--line-strong) !important; border-radius: 18px !important; background: #101625 !important; box-shadow: var(--shadow) !important; }
