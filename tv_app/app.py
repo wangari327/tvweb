@@ -52,9 +52,6 @@ TRENDING_CACHE_TTL = max(60, int(os.environ.get('TRENDING_CACHE_TTL', '900')))
 PUBLIC_PAGE_CACHE_TTL = max(300, int(os.environ.get('PUBLIC_PAGE_CACHE_TTL', '3600')))
 POPULAR_LEADERBOARD_TTL = max(3600, int(os.environ.get('POPULAR_LEADERBOARD_TTL', '43200')))
 POPULAR_LEADERBOARD_MAX_TITLES = max(60, int(os.environ.get('POPULAR_LEADERBOARD_MAX_TITLES', '300')))
-POPULAR_FALLBACK_CANDIDATE_LIMIT = max(
-    120, int(os.environ.get('POPULAR_FALLBACK_CANDIDATE_LIMIT', '600'))
-)
 FALLBACK_GENRE_HUBS = {
     'tv': ('Action', 'Adventure', 'Comedy', 'Crime', 'Drama', 'Family', 'Fantasy', 'Mystery', 'Reality', 'Science Fiction', 'Thriller'),
     'anime': ('Action', 'Adventure', 'Animation', 'Comedy', 'Drama', 'Fantasy', 'Horror', 'Mystery', 'Romance', 'Science Fiction'),
@@ -219,22 +216,14 @@ def _live_popular_pagination(category: str, page: int, per_page: int):
 
 
 def _recent_public_fallback(category: str, limit: int):
-    """Return a small usable recent set without scanning a category's full history."""
+    """Return recently updated public titles before the live window has clicks."""
     target_category = 'movie' if category == 'movies' else category
-    candidates = (
-        TVShow.query
-        .filter(TVShow.availability_updated_at.isnot(None))
+    return (
+        _public_query(target_category)
         .order_by(TVShow.availability_updated_at.desc())
-        .limit(POPULAR_FALLBACK_CANDIDATE_LIMIT)
+        .limit(limit)
         .all()
     )
-    return [
-        show for show in candidates
-        if show.category == target_category
-        and show.show_name
-        and show.slug
-        and show.download_link
-    ][:limit]
 
 
 def _popularity_cache_keys(category: str):
