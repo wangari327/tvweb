@@ -19,7 +19,7 @@
     <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
     <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.min.css') }}?v=2.4.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.min.css') }}?v=2.4.1">
 
     <script src="https://www.termsfeed.com/public/cookie-consent/4.2.0/cookie-consent.js" charset="UTF-8"></script>
     <script>
@@ -68,6 +68,18 @@
                 <a href="{{ url_for('anime_index') }}" {% if site_mode == 'anime' %}aria-current="page"{% endif %}>Anime</a>
                 <a href="{{ url_for('list_movies') }}" {% if site_mode == 'movies' %}aria-current="page"{% endif %}>Movies</a>
                 <a href="{{ category_browse_url(site_mode) }}">Browse</a>
+            </nav>
+
+            <nav class="mode-switcher" aria-label="Switch catalogue">
+                <a href="{{ url_for('index') }}" aria-label="TV shows" {% if site_mode == 'tv' %}aria-current="page"{% endif %}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="13" rx="2"/><path d="m10 9 5 2.5-5 2.5V9ZM8 21h8"/></svg>
+                </a>
+                <a href="{{ url_for('anime_index') }}" aria-label="Anime" {% if site_mode == 'anime' %}aria-current="page"{% endif %}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 1.5 5.1L18 9.5l-4.5 1.4L12 16l-1.5-5.1L6 9.5l4.5-1.4L12 3Z"/><path d="m18.5 15 .8 2.7L22 18.5l-2.7.8-.8 2.7-.8-2.7-2.7-.8 2.7-.8.8-2.7Z"/></svg>
+                </a>
+                <a href="{{ url_for('list_movies') }}" aria-label="Movies" {% if site_mode == 'movies' %}aria-current="page"{% endif %}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16v11H4zM4 8l2-4h12l2 4M8 4l2 4m4-4 2 4M7 12h.01M12 12h.01M17 12h.01"/></svg>
+                </a>
             </nav>
 
             <div class="header-actions">
