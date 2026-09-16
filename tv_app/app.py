@@ -528,6 +528,29 @@ def _contains_title_phrase(phrase: str):
     return TVShow.show_name.ilike(f"%{escaped}%", escape="\\")
 
 
+def _compact_search_text(value: str) -> str:
+    """Collapse punctuation so ``spiderman`` and ``Spider-Man`` agree."""
+    return "".join(re.findall(r"[a-z0-9]+", (value or "").lower()))
+
+
+def _compact_title_expression():
+    """Return a separator-free title expression on supported databases."""
+    if db.engine.dialect.name == 'postgresql':
+        return func.regexp_replace(
+            func.lower(TVShow.show_name),
+            '[^a-z0-9]+',
+            '',
+            'g',
+        )
+
+    # SQLite powers the test suite and small local installs, but does not ship
+    # PostgreSQL's regexp_replace. Its native replace() is sufficient here.
+    expression = func.lower(TVShow.show_name)
+    for separator in (' ', '-', '_', '.', ':', "'"):
+        expression = func.replace(expression, separator, '')
+    return expression
+
+
 def _title_equals_phrase(phrase: str):
     escaped = phrase.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return TVShow.show_name.ilike(escaped, escape="\\")
@@ -539,13 +562,24 @@ def _title_starts_with_phrase(phrase: str):
 
 
 def _catalogue_exact_search_query(category: str, query_str: str):
-    """Rank direct title matches by relevance before recency."""
+    """Rank direct title families by relevance, then newest release."""
     phrases = _search_phrases(query_str)
-    exact_match = or_(*(_contains_title_phrase(phrase) for phrase in phrases))
-    exact_title = or_(*(_title_equals_phrase(phrase) for phrase in phrases))
+    phrase_match = or_(*(_contains_title_phrase(phrase) for phrase in phrases))
     starts_with_title = or_(*(_title_starts_with_phrase(phrase) for phrase in phrases))
-    return _public_query(category).filter(exact_match).order_by(
-        case((exact_title, 0), (starts_with_title, 1), else_=2),
+    compact_query = _compact_search_text(query_str)
+    compact_title = _compact_title_expression()
+    compact_contains = compact_title.like(f"%{compact_query}%") if compact_query else False
+    compact_starts = compact_title.like(f"{compact_query}%") if compact_query else False
+    return _public_query(category).filter(or_(phrase_match, compact_contains)).order_by(
+        # A franchise's named entries ("Spider-Man: No Way Home") should beat
+        # a one-word title such as "Spider", and recent entries within that
+        # family should be shown before the original film.
+        case(
+            (compact_starts, 0),
+            (starts_with_title, 1),
+            (compact_contains, 2),
+            else_=3,
+        ),
         TVShow.year.desc().nullslast(),
         TVShow.rating.desc().nullslast(),
         TVShow.availability_updated_at.desc()
@@ -561,12 +595,23 @@ def _catalogue_fuzzy_search_query(category: str, query_str: str):
     ):
         return None
 
-    fuzzy_match = TVShow.show_name.op('%')(normalized_query)
-    fuzzy_score = func.similarity(TVShow.show_name, normalized_query)
+    compact_query = _compact_search_text(query_str)
+    compact_title = _compact_title_expression()
+    fuzzy_match = or_(
+        TVShow.show_name.op('%')(normalized_query),
+        compact_title.op('%')(compact_query),
+    )
+    fuzzy_score = func.greatest(
+        func.similarity(TVShow.show_name, normalized_query),
+        func.similarity(compact_title, compact_query),
+    )
     # A title beginning with the first four typed characters is a useful tie
     # breaker for errors such as "spidreman" without hiding close matches.
     prefix = normalized_query.replace(" ", "")[:4]
-    starts_like_query = TVShow.show_name.ilike(f"{prefix}%")
+    starts_like_query = or_(
+        TVShow.show_name.ilike(f"{prefix}%"),
+        compact_title.like(f"{prefix}%"),
+    )
     return _public_query(category).filter(fuzzy_match).order_by(
         case((starts_like_query, 0), else_=1),
         fuzzy_score.desc(),

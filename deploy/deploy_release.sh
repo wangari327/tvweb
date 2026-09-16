@@ -45,6 +45,9 @@ install -m 0640 -o "$APP_USER" -g "$APP_USER" "$ENV_FILE" "$RELEASE_DIR/.env"
 
 runuser -u "$APP_USER" -- "$VENV/bin/pip" install --requirement "$RELEASE_DIR/requirements.txt"
 runuser -u "$APP_USER" -- env PYTHONPATH="$RELEASE_DIR" "$VENV/bin/python" "$RELEASE_DIR/scripts/initialize_database.py"
+# Concurrent index creation is safe on a running catalogue and makes
+# separator-insensitive title search fast on larger movie libraries.
+runuser -u "$APP_USER" -- env PYTHONPATH="$RELEASE_DIR" "$VENV/bin/python" "$RELEASE_DIR/scripts/build_catalog_indexes.py"
 
 PREVIOUS_RELEASE=""
 if [[ -L "$CURRENT_LINK" ]]; then

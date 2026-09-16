@@ -8,7 +8,7 @@ os.environ.setdefault("SITE_BASE_URL", "https://ibox-tv.com")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 
 from tv_app.app import (
-    _catalogue_exact_search_query, _detail_page_title, _popular_genres,
+    _catalogue_exact_search_query, _catalogue_search_query, _detail_page_title, _popular_genres,
     _popularity_leaderboard_key, _search_phrases, app, get_trending_shows,
     refresh_genre_hub_cache,
 )
@@ -406,16 +406,25 @@ class PublicRouteTests(unittest.TestCase):
                         year=2027, rating=9.0, category="movie",
                         content_hash="movie-912", slug="across-spider-man",
                     ),
+                    TVShow(
+                        tmdb_id=913, message_id=9013, show_name="Spider",
+                        download_link="https://t.me/example?start=spider",
+                        overview="An unrelated Spider title.",
+                        poster_path="https://image.tmdb.org/t/p/w500/spider.jpg",
+                        year=2027, rating=9.5, category="movie",
+                        content_hash="movie-913", slug="spider",
+                    ),
                 ]
             )
             db.session.commit()
-            names = [show.show_name for show in _catalogue_exact_search_query("movie", "spider-man").all()]
+            names = [show.show_name for show in _catalogue_search_query("movie", "spiderman").all()]
 
         self.assertEqual(names[:3], [
-            "Spider-Man",
             "Spider-Man: New Dawn",
+            "Spider-Man",
             "Across the Spider-Man Multiverse",
         ])
+        self.assertNotIn("Spider", names)
 
     def test_clean_catalogue_pagination_is_indexable_and_self_canonical(self):
         with app.app_context():

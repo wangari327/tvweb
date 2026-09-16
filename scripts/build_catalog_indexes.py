@@ -26,6 +26,12 @@ INDEXES = (
         "CREATE INDEX CONCURRENTLY ix_tv_shows_category_clicks_availability "
         "ON public.tv_shows (category, clicks DESC, availability_updated_at DESC)",
     ),
+    (
+        "ix_tv_shows_compact_name_trgm",
+        "CREATE INDEX CONCURRENTLY ix_tv_shows_compact_name_trgm "
+        "ON public.tv_shows USING gin "
+        "(regexp_replace(lower(show_name), '[^a-z0-9]+', '', 'g') gin_trgm_ops)",
+    ),
 )
 
 
