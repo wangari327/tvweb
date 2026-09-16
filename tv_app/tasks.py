@@ -44,6 +44,16 @@ except ImportError:
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
 TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500"
 
+
+@celery.task
+def refresh_genre_hubs():
+    """Refresh real catalogue genres outside the public request path."""
+    from tv_app.app import app, refresh_genre_hub_cache
+
+    with app.app_context():
+        refresh_genre_hub_cache()
+    return True
+
 # ==============================================================================
 #                               TEXT HELPERS
 # ==============================================================================

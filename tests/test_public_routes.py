@@ -8,8 +8,9 @@ os.environ.setdefault("SITE_BASE_URL", "https://ibox-tv.com")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 
 from tv_app.app import (
-    _detail_page_title, _popularity_leaderboard_key, _search_phrases, app,
-    get_trending_shows,
+    _catalogue_exact_search_query, _detail_page_title, _popular_genres,
+    _popularity_leaderboard_key, _search_phrases, app, get_trending_shows,
+    refresh_genre_hub_cache,
 )
 from tv_app.models import Genre, TVShow, db
 
@@ -166,7 +167,8 @@ class PublicRouteTests(unittest.TestCase):
             drama = Genre(name="Drama")
             romance = Genre(name="Romance")
             action = Genre(name="Action")
-            db.session.add_all([science_fiction, drama, romance, action])
+            documentary = Genre(name="Documentary")
+            db.session.add_all([science_fiction, drama, romance, action, documentary])
             db.session.flush()
 
             ark = TVShow.query.filter_by(tmdb_id=101, category="tv").first()
@@ -192,7 +194,7 @@ class PublicRouteTests(unittest.TestCase):
             TVShow.query.filter_by(tmdb_id=505).first().genres = [science_fiction]
             TVShow.query.filter_by(tmdb_id=606).first().genres = [romance]
             TVShow.query.filter_by(tmdb_id=202).first().genres = [action]
-            TVShow.query.filter_by(tmdb_id=303).first().genres = [action]
+            TVShow.query.filter_by(tmdb_id=303).first().genres = [action, documentary]
             db.session.commit()
 
     def assert_contains(self, response, text):
@@ -218,8 +220,39 @@ class PublicRouteTests(unittest.TestCase):
         self.assertEqual(self.client.get("/movies").status_code, 200)
         self.assertEqual(self.client.get("/browse/tv").status_code, 200)
         self.assertEqual(self.client.get("/browse/anime").status_code, 200)
+        self.assertEqual(self.client.get("/browse/movies").status_code, 200)
         self.assert_contains(self.client.get("/anime"), "https://ibox-tv.com/anime")
         self.assert_contains(self.client.get("/movies"), "https://ibox-tv.com/movies")
+
+    def test_movie_home_and_full_catalogue_are_separate(self):
+        home = self.client.get("/movies")
+        home_body = home.get_data(as_text=True)
+        self.assert_contains(home, "Popular movie pick")
+        self.assert_contains(home, "Latest drops")
+        self.assertNotIn("Refine results", home_body)
+        self.assert_contains(home, 'href="/browse/movies"')
+
+        catalogue = self.client.get("/browse/movies")
+        self.assert_contains(catalogue, "Browse all movies.")
+        self.assert_contains(catalogue, "Refine results")
+        self.assert_contains(catalogue, '<form method="get" action="/browse/movies"')
+        self.assert_contains(catalogue, 'class="mode-movies')
+
+        # Old shared links retain their catalogue behaviour rather than
+        # accidentally becoming movie-home pagination.
+        legacy_filter = self.client.get("/movies?sort_by=rating_desc")
+        self.assert_contains(legacy_filter, "Refine results")
+
+    def test_worker_cache_exposes_real_genres_beyond_the_tmdb_fallback(self):
+        fake_redis = FakeRedis()
+        with patch("tv_app.app._redis", return_value=fake_redis):
+            with app.app_context():
+                refresh_genre_hub_cache()
+                movie_genres = [genre.name for genre, _count in _popular_genres("movie", limit=100)]
+                self.assertIn("Documentary", movie_genres)
+
+            response = self.client.get("/browse/movies")
+        self.assert_contains(response, "Documentary")
 
     def test_legacy_subdomain_redirects_to_primary_host(self):
         previous_testing = app.testing
@@ -342,6 +375,45 @@ class PublicRouteTests(unittest.TestCase):
             _search_phrases('Spider Man'),
             ('Spider Man', 'spider man', 'spider-man', 'spiderman'),
         )
+
+    def test_search_ranks_exact_title_before_newer_partial_matches(self):
+        with app.app_context():
+            db.session.add_all(
+                [
+                    TVShow(
+                        tmdb_id=910, message_id=9010, show_name="Spider-Man",
+                        download_link="https://t.me/example?start=spider-man-2002",
+                        overview="The original Spider-Man movie.",
+                        poster_path="https://image.tmdb.org/t/p/w500/spider-man-2002.jpg",
+                        year=2002, rating=7.4, category="movie",
+                        content_hash="movie-910", slug="spider-man-2002",
+                    ),
+                    TVShow(
+                        tmdb_id=911, message_id=9011, show_name="Spider-Man: New Dawn",
+                        download_link="https://t.me/example?start=spider-man-new-dawn",
+                        overview="A newer Spider-Man adventure.",
+                        poster_path="https://image.tmdb.org/t/p/w500/spider-man-new-dawn.jpg",
+                        year=2026, rating=8.0, category="movie",
+                        content_hash="movie-911", slug="spider-man-new-dawn",
+                    ),
+                    TVShow(
+                        tmdb_id=912, message_id=9012, show_name="Across the Spider-Man Multiverse",
+                        download_link="https://t.me/example?start=across-spider-man",
+                        overview="A multiverse Spider-Man adventure.",
+                        poster_path="https://image.tmdb.org/t/p/w500/across-spider-man.jpg",
+                        year=2027, rating=9.0, category="movie",
+                        content_hash="movie-912", slug="across-spider-man",
+                    ),
+                ]
+            )
+            db.session.commit()
+            names = [show.show_name for show in _catalogue_exact_search_query("movie", "spider-man").all()]
+
+        self.assertEqual(names[:3], [
+            "Spider-Man",
+            "Spider-Man: New Dawn",
+            "Across the Spider-Man Multiverse",
+        ])
 
     def test_clean_catalogue_pagination_is_indexable_and_self_canonical(self):
         with app.app_context():

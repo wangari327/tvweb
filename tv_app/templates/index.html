@@ -3,12 +3,12 @@
 {% from "_adsense.html" import responsive_ad with context %}
 
 {% block title %}{{ title }}{% endblock %}
-{% block body_class %}home-page{% endblock %}
-{% block meta_description %}{% if site_mode == 'anime' %}Discover newly available anime, explore popular series, and continue to the latest episodes on iBOX TV.{% else %}Discover newly available TV shows, explore popular series, and continue to the latest episodes on iBOX TV.{% endif %}{% endblock %}
+{% block body_class %}home-page{% if site_mode == 'movies' %} movies-home{% endif %}{% endblock %}
+{% block meta_description %}{% if site_mode == 'anime' %}Discover newly available anime, explore popular series, and continue to the latest episodes on iBOX TV.{% elif site_mode == 'movies' %}Discover newly available movies, explore popular picks, and browse the full iBOX TV movie catalogue.{% else %}Discover newly available TV shows, explore popular series, and continue to the latest episodes on iBOX TV.{% endif %}{% endblock %}
 {% block social_meta %}
 <meta property="og:type" content="website">
 <meta property="og:title" content="{{ title }} | iBOX TV">
-<meta property="og:description" content="Discover the latest available {{ 'anime' if site_mode == 'anime' else 'TV shows' }} on iBOX TV.">
+<meta property="og:description" content="Discover the latest available {{ 'movies' if site_mode == 'movies' else ('anime' if site_mode == 'anime' else 'TV shows') }} on iBOX TV.">
 <meta property="og:url" content="{{ canonical_url }}">
 <meta name="twitter:card" content="summary">
 {% endblock %}
@@ -56,7 +56,8 @@
 {% if genre_hubs %}
 <section class="shell genre-discovery" data-reveal>
     <div class="section-heading compact-heading">
-        <div class="section-title-group"><span class="section-index">Browse</span><h2>Explore by genre</h2></div>
+        <div class="section-title-group"><span class="section-index">Browse</span><h2>Quick genres</h2></div>
+        <a class="text-link arrow-link" href="{{ category_browse_url(site_mode) }}">Full catalogue <span aria-hidden="true">&rarr;</span></a>
     </div>
     {% set category_key = site_mode %}
     {% include "_genre_hubs.html" %}
@@ -80,7 +81,7 @@
         <div class="section-title-group"><span class="section-index">02 / New</span><h2>Latest drops</h2></div>
         <span class="result-count">{% if shows.total is not none %}{{ shows.total }} titles{% else %}Fresh from Telegram{% endif %}</span>
     </div>
-    <div class="media-grid">
+    <div class="media-grid latest-grid">
         {# Load the first mobile viewport's worth immediately. Native lazy
            loading was delaying these posters until after the visitor scrolled. #}
         {% for show in shows.items %}{{ poster_card(show, eager=loop.index <= 6) }}{% endfor %}

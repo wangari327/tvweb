@@ -102,7 +102,7 @@ def get_site_mode():
     path = request.path.lower()
     if endpoint in {'anime_index', 'browse_anime', 'anime_detail'} or path.startswith('/anime'):
         return 'anime'
-    if endpoint in {'list_movies', 'movie_detail'} or path.startswith('/movies'):
+    if endpoint in {'list_movies', 'browse_movies', 'movie_detail', 'movie_genre'} or path.startswith('/movies') or path.startswith('/browse/movies'):
         return 'movies'
     return 'tv'
 
@@ -242,6 +242,7 @@ def _popularity_cache_keys(category: str):
     if target_category == 'movie':
         keys.extend(
             (
+                'public:page:movies:home:v3:p1',
                 'public:page:movies:date_desc:v3:p1',
                 'public:page:movies:popular:v3:p1',
             )
@@ -292,7 +293,7 @@ def category_home_url(category: str, external: bool = False, **params) -> str:
 def category_browse_url(category: str, external: bool = False, **params) -> str:
     endpoint = 'browse_anime' if category == 'anime' else 'browse_tv'
     if category == 'movies':
-        endpoint = 'list_movies'
+        endpoint = 'browse_movies'
     if external:
         return _primary_url_for(endpoint, **_compact_params(params))
     return url_for(endpoint, **_compact_params(params))
@@ -307,21 +308,57 @@ def genre_url(category: str, genre, external: bool = False, **params) -> str:
     return url_for(config['genre_endpoint'], **values)
 
 
-def _popular_genres(category: str, limit: int = 12):
-    """Return cached genre hubs without re-aggregating the whole catalogue per visit."""
-    cache_key = f"public:genre-hubs:{category}"
+def _genre_cache_key(category: str) -> str:
+    return f"public:genre-hubs:{category}"
+
+
+def _cached_genre_hubs(category: str):
+    """Read a worker-built genre/count list without aggregating on a visit."""
+    cache_key = _genre_cache_key(category)
     try:
         cached = _redis().get(cache_key)
         if cached:
             rows = json.loads(cached)
-            return [(SimpleNamespace(name=name), int(title_count)) for name, title_count in rows[:limit]]
+            return [(SimpleNamespace(name=name), int(title_count)) for name, title_count in rows]
     except Exception as exc:
         logger.warning("Genre-hub cache read failed: %s", exc)
 
-    # This list keeps navigation and internal linking available during a cache
-    # miss. A full aggregation of the 73k-title catalogue is deliberately not
-    # performed in a visitor request: it can otherwise block the sole web
-    # worker long enough to make the entire site unavailable.
+    return []
+
+
+def refresh_genre_hub_cache():
+    """Rebuild real genre choices outside the visitor request path."""
+    for category in ('tv', 'anime', 'movie'):
+        rows = (
+            db.session.query(Genre.name, func.count(show_genres.c.tvshow_id))
+            .join(show_genres, show_genres.c.genre_id == Genre.id)
+            .join(TVShow, TVShow.id == show_genres.c.tvshow_id)
+            .filter(
+                TVShow.category == category,
+                TVShow.show_name.isnot(None),
+                TVShow.show_name != '',
+                TVShow.slug.isnot(None),
+                TVShow.slug != '',
+                TVShow.download_link.isnot(None),
+                TVShow.download_link != '',
+            )
+            .group_by(Genre.id, Genre.name)
+            .order_by(func.count(show_genres.c.tvshow_id).desc(), Genre.name.asc())
+            .all()
+        )
+        _redis().setex(
+            _genre_cache_key(category),
+            GENRE_HUB_CACHE_TTL,
+            json.dumps([(name, int(title_count)) for name, title_count in rows]),
+        )
+
+
+def _popular_genres(category: str, limit: int = 12):
+    """Return useful, real genre hubs with a safe cold-cache fallback."""
+    cached = _cached_genre_hubs(category)
+    if cached:
+        return cached[:limit]
+
     return [(SimpleNamespace(name=name), None) for name in FALLBACK_GENRE_HUBS.get(category, ())[:limit]]
 
 
@@ -467,12 +504,12 @@ def _write_public_page_cache(cache_key: str, html: str):
 
 
 def _browse_filter_options(category: str):
-    """Return lightweight filter choices without aggregating the full catalogue."""
+    """Return cached, complete filter choices without aggregating per visit."""
     current_year = datetime.utcnow().year
-    genres = [SimpleNamespace(name=name) for name in FALLBACK_GENRE_HUBS.get(category, ())]
-    # The previous implementation joined every title to every genre and ran a
-    # minimum-year aggregate in a visitor request. Stable, useful options are
-    # preferable to holding the only database connections open for a filter UI.
+    cached = _cached_genre_hubs(category)
+    genres = [genre for genre, _title_count in cached]
+    if not genres:
+        genres = [SimpleNamespace(name=name) for name in FALLBACK_GENRE_HUBS.get(category, ())]
     return genres, list(range(current_year, 1969, -1))
 
 def _search_phrases(query_str: str) -> tuple:
@@ -491,11 +528,26 @@ def _contains_title_phrase(phrase: str):
     return TVShow.show_name.ilike(f"%{escaped}%", escape="\\")
 
 
+def _title_equals_phrase(phrase: str):
+    escaped = phrase.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return TVShow.show_name.ilike(escaped, escape="\\")
+
+
+def _title_starts_with_phrase(phrase: str):
+    escaped = phrase.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return TVShow.show_name.ilike(f"{escaped}%", escape="\\")
+
+
 def _catalogue_exact_search_query(category: str, query_str: str):
-    """Find direct title matches while treating separators as equivalent."""
+    """Rank direct title matches by relevance before recency."""
     phrases = _search_phrases(query_str)
     exact_match = or_(*(_contains_title_phrase(phrase) for phrase in phrases))
+    exact_title = or_(*(_title_equals_phrase(phrase) for phrase in phrases))
+    starts_with_title = or_(*(_title_starts_with_phrase(phrase) for phrase in phrases))
     return _public_query(category).filter(exact_match).order_by(
+        case((exact_title, 0), (starts_with_title, 1), else_=2),
+        TVShow.year.desc().nullslast(),
+        TVShow.rating.desc().nullslast(),
         TVShow.availability_updated_at.desc()
     )
 
@@ -602,7 +654,8 @@ def hostonly(url):
 
 def _render_index(mode: str, endpoint: str):
     db_category = CATEGORY_CONFIG[mode]['db']
-    search_query = (request.args.get('search') or '').strip()
+    search_parameter = 'q' if mode == 'movies' else 'search'
+    search_query = (request.args.get(search_parameter) or '').strip()
     page = max(request.args.get('page', 1, type=int), 1)
     # The current catalogue has 114 TV pages. Leave room to grow, but reject
     # nonsensical crawler offsets before they touch the database.
@@ -660,12 +713,16 @@ def _render_index(mode: str, endpoint: str):
         )
         if page > 1 and not shows.items:
             abort(404)
-        page_title = "Latest anime" if mode == 'anime' else "Latest TV shows"
+        page_title = {
+            'tv': 'Latest TV shows',
+            'anime': 'Latest anime',
+            'movies': 'Latest movies',
+        }[mode]
 
     canonical_url, prev_url, next_url, meta_robots = _page_urls(
         endpoint,
         shows,
-        extra_params={'search': search_query},
+        extra_params={search_parameter: search_query},
         index_pagination=True,
     )
 
@@ -808,8 +865,7 @@ def browse_tv():
 def browse_anime():
     return _render_browse('anime', 'browse_anime')
 
-@app.route('/movies')
-def list_movies():
+def _render_movie_catalogue(endpoint: str):
     try:
         page = max(request.args.get('page', 1, type=int), 1)
         # 30 titles per page covers the whole current catalogue well before
@@ -824,9 +880,10 @@ def list_movies():
             sort_by = 'date_desc'
         year_filter = request.args.get('year', type=int)
         rating_filter = request.args.get('rating', type=int)
+        genre_filter = request.args.get('genre')
         cache_key = (
             f'public:page:movies:{sort_by}:v3:p{page}'
-            if page <= 150 and not search_q and not year_filter and rating_filter is None
+            if page <= 150 and not search_q and not genre_filter and not year_filter and rating_filter is None
             else None
         )
         if cache_key:
@@ -839,6 +896,8 @@ def list_movies():
         if search_q:
             query = _catalogue_search_query('movie', search_q)
 
+        if genre_filter:
+            query = query.join(TVShow.genres).filter(Genre.name == genre_filter)
         if year_filter:
             query = query.filter(TVShow.year == year_filter)
         if rating_filter is not None:
@@ -846,7 +905,7 @@ def list_movies():
 
         live_popularity = None
         fallback_popularity = None
-        if sort_by == 'popular' and not search_q and not year_filter and rating_filter is None:
+        if sort_by == 'popular' and not search_q and not genre_filter and not year_filter and rating_filter is None:
             live_popularity = _live_popular_pagination('movie', page, per_page)
             if live_popularity is None:
                 fallback_popularity = ListPagination(
@@ -873,22 +932,22 @@ def list_movies():
         if page > 1 and not movies.items:
             abort(404)
 
-        current_year = datetime.utcnow().year
-        years = list(range(current_year, 1970, -1))
+        genres, years = _browse_filter_options('movie')
         
-        canonical_url, prev_url, next_url, meta_robots = _page_urls('list_movies', movies, extra_params={
+        canonical_url, prev_url, next_url, meta_robots = _page_urls(endpoint, movies, extra_params={
             'q': search_q,
             'sort_by': sort_by if sort_by != 'date_desc' else '',
             'year': year_filter,
             'rating': rating_filter,
+            'genre': genre_filter or '',
         }, index_pagination=True)
 
         html = render_template('movies.html',
-            movies=movies, years=years,
-            trending_shows=get_trending_shows(limit=6, category='movies'),
-            genre_hubs=_popular_genres('movie'),
+            movies=movies, years=years, genres=genres,
             pagination_numbers=_pagination_numbers(movies),
-            search_q=search_q, current_sort=sort_by, selected_year=year_filter, selected_rating=rating_filter,
+            search_q=search_q, current_sort=sort_by, selected_genre=genre_filter,
+            selected_year=year_filter, selected_rating=rating_filter,
+            movie_catalogue_endpoint=endpoint,
             title="Browse Movies",
             canonical_url=canonical_url, prev_url=prev_url, next_url=next_url, meta_robots=meta_robots
         )
@@ -900,6 +959,22 @@ def list_movies():
             raise
         logger.error(f"Error in list_movies: {e}")
         return render_template('500.html'), 500
+
+
+@app.route('/movies')
+def list_movies():
+    # The unfiltered URL is the movie home. Keep existing query URLs working
+    # while directing deliberate browsing to the dedicated catalogue route.
+    if not request.args or (
+        'q' in request.args and set(request.args).issubset({'q', 'page'})
+    ):
+        return _render_index('movies', 'list_movies')
+    return _render_movie_catalogue('list_movies')
+
+
+@app.route('/browse/movies')
+def browse_movies():
+    return _render_movie_catalogue('browse_movies')
 
 
 def _genre_from_slug(genre_slug: str):
@@ -929,10 +1004,14 @@ def _render_genre_hub(category_key: str, genre_slug: str):
             return cached_page
 
     shows = WindowPagination(
-        _indexable_query(config['db'])
+        _public_query(config['db'])
         .join(TVShow.genres)
         .filter(Genre.id == genre.id)
-        .order_by(*_popular_ordering()),
+        .order_by(
+            TVShow.created_at.desc(),
+            TVShow.clicks.desc(),
+            TVShow.rating.desc().nullslast(),
+        ),
         page=page,
         per_page=30,
     )
@@ -1214,6 +1293,7 @@ def core_sitemap():
         (_primary_url_for('list_movies'), 'daily'),
         (_primary_url_for('browse_tv'), 'weekly'),
         (_primary_url_for('browse_anime'), 'weekly'),
+        (_primary_url_for('browse_movies'), 'weekly'),
         (_primary_url_for('about'), 'monthly'),
         (_primary_url_for('privacy_policy'), 'yearly'),
     ]

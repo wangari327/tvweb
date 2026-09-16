@@ -19,6 +19,10 @@ beat_schedule = {
         'task': 'tv_app.tasks.sync_movies',
         'schedule': crontab(minute=0),
     },
+    'refresh-genre-hubs-every-6-hours': {
+        'task': 'tv_app.tasks.refresh_genre_hubs',
+        'schedule': crontab(minute=15, hour='*/6'),
+    },
     'reset-clicks-every-12-hours': {
         'task': 'tv_app.tasks.reset_clicks',
         'schedule': crontab(minute=0, hour='*/12'),
