@@ -211,6 +211,8 @@ class PublicRouteTests(unittest.TestCase):
         self.assert_contains(response, "<h1>Deep Horizon</h1>")
         self.assert_contains(response, '<a class="feature-poster" href="/tv/101-the-ark"')
         self.assert_contains(response, "Most opened on iBOX TV")
+        self.assert_contains(response, 'href="/static/catalogue.css?v=2"')
+        self.assert_contains(response, 'class="media-grid latest-grid"')
         self.assertNotIn("#_TheArk", body)
         self.assertEqual(body.count('type="search"'), 1)
         self.assertNotIn("?search=&amp;page=1", body)

@@ -1,14 +1,50 @@
-/* Catalogue-specific adjustments kept separate from the fingerprinted core UI. */
+/* Homepage catalogue density kept separate from the fingerprinted core UI. */
 @media (max-width: 620px) {
-  .movies-home .latest-grid {
+  /* The latest rail should show a useful scan of titles, not two oversized
+     posters. This applies equally to TV, anime, and movies. */
+  .home-page .latest-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 14px 8px;
+    gap: 18px 8px;
   }
 
-  .movies-home .latest-grid .card-copy h3 { font-size: .67rem; }
-  .movies-home .latest-grid .card-copy p {
+  .home-page .latest-grid .card-copy {
+    padding-top: 9px;
+  }
+
+  .home-page .latest-grid .card-copy h3 {
+    display: -webkit-box;
+    min-height: 2.35em;
+    margin-bottom: 5px;
+    overflow: hidden;
+    font-size: .86rem;
+    font-weight: 750;
+    line-height: 1.18;
+    text-overflow: clip;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .home-page .latest-grid .card-copy p {
     min-height: 0;
-    font-size: .56rem;
-    -webkit-line-clamp: 1;
+    font-size: .71rem;
+    font-weight: 650;
+    line-height: 1.35;
+    -webkit-line-clamp: 2;
+  }
+
+  .home-page .latest-grid .rating-badge {
+    padding: 5px 7px;
+    font-size: .68rem;
+  }
+
+  .home-page .latest-grid .rating-badge svg {
+    width: 11px;
+  }
+}
+
+@media (max-width: 389px) {
+  .home-page .latest-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
