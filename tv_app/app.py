@@ -491,31 +491,49 @@ def _contains_title_phrase(phrase: str):
     return TVShow.show_name.ilike(f"%{escaped}%", escape="\\")
 
 
+def _catalogue_exact_search_query(category: str, query_str: str):
+    """Find direct title matches while treating separators as equivalent."""
+    phrases = _search_phrases(query_str)
+    exact_match = or_(*(_contains_title_phrase(phrase) for phrase in phrases))
+    return _public_query(category).filter(exact_match).order_by(
+        TVShow.availability_updated_at.desc()
+    )
+
+
+def _catalogue_fuzzy_search_query(category: str, query_str: str):
+    """Return indexed typo matches when no direct title match exists."""
+    normalized_query = " ".join(re.findall(r"[a-z0-9]+", (query_str or "").lower()))
+    if (
+        db.engine.dialect.name != 'postgresql'
+        or len(normalized_query.replace(" ", "")) < 4
+    ):
+        return None
+
+    fuzzy_match = TVShow.show_name.op('%')(normalized_query)
+    fuzzy_score = func.similarity(TVShow.show_name, normalized_query)
+    # A title beginning with the first four typed characters is a useful tie
+    # breaker for errors such as "spidreman" without hiding close matches.
+    prefix = normalized_query.replace(" ", "")[:4]
+    starts_like_query = TVShow.show_name.ilike(f"{prefix}%")
+    return _public_query(category).filter(fuzzy_match).order_by(
+        case((starts_like_query, 0), else_=1),
+        fuzzy_score.desc(),
+        TVShow.availability_updated_at.desc(),
+    )
+
+
 def _catalogue_search_query(category: str, query_str: str):
-    """Search titles with exact, separator-aware and Postgres trigram matches.
+    """Search titles with direct, separator-aware, then trigram typo matches.
 
     The GIN trigram index keeps typo recovery quick on the large movie
     catalogue. SQLite (used in tests and lightweight local setups) still gets
     exact and separator-aware matching without PostgreSQL-only operators.
     """
-    phrases = _search_phrases(query_str)
-    exact_match = or_(*(_contains_title_phrase(phrase) for phrase in phrases))
-    query = _public_query(category)
-    normalized_query = " ".join(re.findall(r"[a-z0-9]+", (query_str or "").lower()))
-    supports_trigrams = (
-        db.engine.dialect.name == 'postgresql'
-        and len(normalized_query.replace(" ", "")) >= 4
-    )
-
-    if supports_trigrams:
-        fuzzy_match = TVShow.show_name.op('%')(normalized_query)
-        return query.filter(or_(exact_match, fuzzy_match)).order_by(
-            case((exact_match, 0), else_=1),
-            func.similarity(TVShow.show_name, normalized_query).desc(),
-            TVShow.availability_updated_at.desc(),
-        )
-
-    return query.filter(exact_match).order_by(TVShow.availability_updated_at.desc())
+    exact_query = _catalogue_exact_search_query(category, query_str)
+    if exact_query.limit(1).first() is not None:
+        return exact_query
+    fuzzy_query = _catalogue_fuzzy_search_query(category, query_str)
+    return fuzzy_query if fuzzy_query is not None else exact_query
 
 
 def count_search_results(category: str, query_str: str) -> int:
@@ -523,7 +541,12 @@ def count_search_results(category: str, query_str: str) -> int:
     if not query_str:
         return 0
     try:
-        return _catalogue_search_query(category, query_str).order_by(None).count()
+        exact_query = _catalogue_exact_search_query(category, query_str)
+        exact_count = exact_query.order_by(None).count()
+        if exact_count:
+            return exact_count
+        fuzzy_query = _catalogue_fuzzy_search_query(category, query_str)
+        return fuzzy_query.order_by(None).count() if fuzzy_query is not None else 0
     except Exception as exc:
         logger.warning("Search count failed for %s: %s", category, exc)
         return 0
