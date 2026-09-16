@@ -7,7 +7,10 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("SITE_BASE_URL", "https://ibox-tv.com")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 
-from tv_app.app import _detail_page_title, _popularity_leaderboard_key, app, get_trending_shows
+from tv_app.app import (
+    _detail_page_title, _popularity_leaderboard_key, _search_phrases, app,
+    get_trending_shows,
+)
 from tv_app.models import Genre, TVShow, db
 
 
@@ -309,6 +312,36 @@ class PublicRouteTests(unittest.TestCase):
         filtered = self.client.get("/browse/tv?year=2023")
         self.assert_contains(search, '<meta name="robots" content="noindex,follow">')
         self.assert_contains(filtered, '<meta name="robots" content="noindex,follow">')
+
+    def test_search_keeps_cross_category_counts_and_separator_variants(self):
+        with app.app_context():
+            db.session.add(
+                TVShow(
+                    tmdb_id=909,
+                    message_id=9009,
+                    show_name="Spider-Man: New Dawn",
+                    episode_title="Available now",
+                    download_link="https://t.me/example?start=spider-man",
+                    overview="A new Spider-Man adventure.",
+                    poster_path="https://image.tmdb.org/t/p/w500/spider-man.jpg",
+                    category="movie",
+                    content_hash="movie-909",
+                    slug="spider-man-new-dawn",
+                )
+            )
+            db.session.commit()
+
+        response = self.client.get('/?search=spider+man')
+        body = response.get_data(as_text=True)
+        self.assert_contains(response, 'TV <span>0</span>')
+        self.assert_contains(response, 'Movies <span>1</span>')
+        self.assert_contains(response, 'No results in TV shows')
+        self.assert_contains(response, 'href="/movies?q=spider+man"')
+        self.assert_contains(self.client.get('/movies?q=spider+man'), 'Spider-Man: New Dawn')
+        self.assertEqual(
+            _search_phrases('Spider Man'),
+            ('Spider Man', 'spider man', 'spider-man', 'spiderman'),
+        )
 
     def test_clean_catalogue_pagination_is_indexable_and_self_canonical(self):
         with app.app_context():

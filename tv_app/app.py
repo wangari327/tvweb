@@ -14,7 +14,7 @@ from flask import (
     Flask, render_template, redirect, url_for, request,
     jsonify, send_from_directory, Response, make_response, abort
 )
-from sqlalchemy import func
+from sqlalchemy import case, func, or_
 from dotenv import load_dotenv
 from redis import Redis
 from werkzeug.exceptions import HTTPException, NotFound
@@ -475,20 +475,57 @@ def _browse_filter_options(category: str):
     # preferable to holding the only database connections open for a filter UI.
     return genres, list(range(current_year, 1969, -1))
 
+def _search_phrases(query_str: str) -> tuple:
+    """Make punctuation and spacing equivalent for common title searches."""
+    query_str = " ".join((query_str or "").split())
+    tokens = re.findall(r"[a-z0-9]+", query_str.lower())
+    variants = [query_str]
+    if tokens:
+        variants.extend((" ".join(tokens), "-".join(tokens), "".join(tokens)))
+    return tuple(dict.fromkeys(value for value in variants if value))
+
+
+def _contains_title_phrase(phrase: str):
+    """Return an escaped, case-insensitive title substring predicate."""
+    escaped = phrase.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return TVShow.show_name.ilike(f"%{escaped}%", escape="\\")
+
+
+def _catalogue_search_query(category: str, query_str: str):
+    """Search titles with exact, separator-aware and Postgres trigram matches.
+
+    The GIN trigram index keeps typo recovery quick on the large movie
+    catalogue. SQLite (used in tests and lightweight local setups) still gets
+    exact and separator-aware matching without PostgreSQL-only operators.
+    """
+    phrases = _search_phrases(query_str)
+    exact_match = or_(*(_contains_title_phrase(phrase) for phrase in phrases))
+    query = _public_query(category)
+    normalized_query = " ".join(re.findall(r"[a-z0-9]+", (query_str or "").lower()))
+    supports_trigrams = (
+        db.engine.dialect.name == 'postgresql'
+        and len(normalized_query.replace(" ", "")) >= 4
+    )
+
+    if supports_trigrams:
+        fuzzy_match = TVShow.show_name.op('%')(normalized_query)
+        return query.filter(or_(exact_match, fuzzy_match)).order_by(
+            case((exact_match, 0), else_=1),
+            func.similarity(TVShow.show_name, normalized_query).desc(),
+            TVShow.availability_updated_at.desc(),
+        )
+
+    return query.filter(exact_match).order_by(TVShow.availability_updated_at.desc())
+
+
 def count_search_results(category: str, query_str: str) -> int:
-    """
-    NEW: consistently counts results for a category to populate the search tabs.
-    Uses ILIKE for speed/consistency across tabs.
-    """
+    """Return the same cross-category count that the visitor can open."""
     if not query_str:
         return 0
     try:
-        # Note: We map 'movies' (site mode) to 'movie' (DB category) if needed,
-        # but the caller should pass the correct DB category ('tv', 'anime', 'movie').
-        return _public_query(category).filter(
-            TVShow.show_name.ilike(f'%{query_str}%')
-        ).count()
-    except Exception:
+        return _catalogue_search_query(category, query_str).order_by(None).count()
+    except Exception as exc:
+        logger.warning("Search count failed for %s: %s", category, exc)
         return 0
 
 def _page_urls(
@@ -558,18 +595,32 @@ def _render_index(mode: str, endpoint: str):
     trending_shows = get_trending_shows(limit=6, category=mode)
     message = None
     result_counts = {'tv': None, 'anime': None, 'movies': None}
+    alternative_results = []
 
     if search_query:
         try:
+            result_counts = {
+                'tv': count_search_results('tv', search_query),
+                'anime': count_search_results('anime', search_query),
+                'movies': count_search_results('movie', search_query),
+            }
             shows = WindowPagination(
-                base_query.filter(TVShow.show_name.ilike(f'%{search_query}%')).order_by(
-                    TVShow.availability_updated_at.desc()
-                ),
+                _catalogue_search_query(db_category, search_query),
                 page=page,
                 per_page=per_page,
             )
             if not shows.items:
                 message = f"No {CATEGORY_CONFIG[mode]['label'].lower()} matched your search."
+                destinations = (
+                    ('tv', 'TV shows', category_home_url('tv', search=search_query)),
+                    ('anime', 'Anime', category_home_url('anime', search=search_query)),
+                    ('movies', 'Movies', category_home_url('movies', q=search_query)),
+                )
+                alternative_results = [
+                    {'label': label, 'count': result_counts[key], 'url': url}
+                    for key, label, url in destinations
+                    if key != mode and result_counts[key]
+                ]
         except Exception as e:
             logger.error(f"Database error during search: {e}")
             db.session.rollback()
@@ -601,6 +652,7 @@ def _render_index(mode: str, endpoint: str):
         pagination_numbers=_pagination_numbers(shows),
         message=message, title=page_title, site_mode=mode,
         result_counts=result_counts,
+        alternative_results=alternative_results,
         canonical_url=canonical_url, prev_url=prev_url, next_url=next_url, meta_robots=meta_robots
     )
     if cache_key:
@@ -762,7 +814,7 @@ def list_movies():
         query = _public_query('movie')
 
         if search_q:
-            query = query.filter(TVShow.show_name.ilike(f'%{search_q}%'))
+            query = _catalogue_search_query('movie', search_q)
 
         if year_filter:
             query = query.filter(TVShow.year == year_filter)

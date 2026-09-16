@@ -33,8 +33,16 @@
     {% if message %}
     <div class="empty-state">
         <span aria-hidden="true">&#8981;</span>
-        <h3>No exact match yet</h3>
+        <h3>No results in {{ 'TV shows' if site_mode == 'tv' else site_mode|title }}</h3>
         <p>{{ message }}</p>
+        {% if alternative_results %}
+        <p class="section-description">We found matches elsewhere in the catalogue.</p>
+        <nav class="genre-hubs" aria-label="Matching search categories">
+            {% for result in alternative_results %}
+            <a href="{{ result.url }}">{{ result.count }} {{ result.label }}</a>
+            {% endfor %}
+        </nav>
+        {% endif %}
     </div>
     {% else %}
     <div class="media-grid">
