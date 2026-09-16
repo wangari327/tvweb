@@ -198,6 +198,23 @@ journalctl -u ibox-tv-web -u ibox-tv-worker -u ibox-tv-beat -f
 curl -fsS http://127.0.0.1:8000/robots.txt
 ```
 
+### AdSense placements
+
+The site keeps Google Auto Ads enabled, but protects the header, hero, and
+footer from disruptive automatic placements. For predictable, responsive
+display units, create two **Display ad** units in AdSense and add their
+numeric slot IDs to the shared `.env` file:
+
+```dotenv
+ADSENSE_HOME_SLOT=1234567890
+ADSENSE_DETAIL_SLOT=0987654321
+```
+
+The home unit appears after “Popular right now”; the detail unit appears after
+the availability summary. Leave either value blank to omit that unit. Unfilled
+manual units collapse without leaving an empty white block, while Auto Ads can
+still place ads in the content-rich detail section.
+
 To roll back, point `current` to a known-good release and restart the three
 services. Keep several confirmed releases until the new version is stable:
 

@@ -364,6 +364,29 @@ class PublicRouteTests(unittest.TestCase):
         self.assertEqual(ads_txt.status_code, 301)
         self.assertEqual(ads_txt.headers["Location"], "https://srv.adstxtmanager.com/75094/ibox-tv.com")
 
+    def test_manual_adsense_units_only_render_when_configured(self):
+        original = {
+            key: app.config[key]
+            for key in ('ADSENSE_HOME_SLOT', 'ADSENSE_DETAIL_SLOT')
+        }
+        try:
+            app.config.update(
+                ADSENSE_HOME_SLOT='1234567890',
+                ADSENSE_DETAIL_SLOT='0987654321',
+            )
+            home = self.client.get('/').get_data(as_text=True)
+            detail = self.client.get('/tv/101-the-ark').get_data(as_text=True)
+        finally:
+            app.config.update(original)
+
+        self.assertIn('data-ad-slot="1234567890"', home)
+        self.assertIn('adsense-slot--home', home)
+        self.assertIn('data-ad-slot="0987654321"', detail)
+        self.assertIn('adsense-slot--detail', detail)
+        self.assertNotIn(
+            'detail-enrichment content-section google-auto-ads-ignore', detail
+        )
+
     def test_robots_allows_search_pages_to_be_crawled_for_noindex(self):
         response = self.client.get("/robots.txt")
         body = response.get_data(as_text=True)

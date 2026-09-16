@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_components.html" import poster_card with context %}
+{% from "_adsense.html" import responsive_ad with context %}
 
 {% block title %}{{ title }}{% endblock %}
 {% block body_class %}home-page{% endblock %}
@@ -63,6 +64,8 @@
         {% for show in trending_shows %}{{ poster_card(show, eager=loop.index <= 3) }}{% endfor %}
     </div>
 </section>
+
+{{ responsive_ad(adsense_home_slot, 'home') }}
 
 <section class="shell content-section" data-reveal>
     <div class="section-heading">

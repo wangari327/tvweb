@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_components.html" import poster_card with context %}
+{% from "_adsense.html" import responsive_ad with context %}
 
 {% block title %}{{ title }}{% endblock %}
 {% block meta_description %}{{ meta_description }}{% endblock %}
@@ -87,8 +88,10 @@
     </dl>
 </section>
 
+{{ responsive_ad(adsense_detail_slot, 'detail') }}
+
 {% if show.official_trailer_key or show.cast_data %}
-<section class="shell detail-enrichment content-section google-auto-ads-ignore">
+<section class="shell detail-enrichment content-section">
     {% if show.official_trailer_key %}
     <div class="trailer-panel">
         <div class="section-heading compact-heading"><div><span class="eyebrow">Watch</span><h2>Official trailer</h2></div></div>

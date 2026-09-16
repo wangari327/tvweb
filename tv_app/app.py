@@ -30,6 +30,14 @@ database_url = os.environ.get('DATABASE_URL', 'sqlite:///tv_shows.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 60 * 60 * 24 * 30
+# Auto Ads remains available site-wide, while these optional identifiers let
+# the owner add two stable, responsive units in the most useful content areas.
+# Empty values deliberately render no manual unit.
+app.config['ADSENSE_CLIENT'] = os.environ.get(
+    'ADSENSE_CLIENT', 'ca-pub-3351229899410110'
+).strip()
+app.config['ADSENSE_HOME_SLOT'] = os.environ.get('ADSENSE_HOME_SLOT', '').strip()
+app.config['ADSENSE_DETAIL_SLOT'] = os.environ.get('ADSENSE_DETAIL_SLOT', '').strip()
 if not database_url.startswith('sqlite:'):
     # Supabase's session pool has a much lower connection allowance than
     # SQLAlchemy's default (five persistent connections plus ten overflow per
@@ -392,6 +400,9 @@ def inject_globals():
         'genre_url': genre_url,
         'pagination_url': pagination_url,
         'site_base_url': SITE_BASE_URL,
+        'adsense_client': app.config['ADSENSE_CLIENT'],
+        'adsense_home_slot': app.config['ADSENSE_HOME_SLOT'],
+        'adsense_detail_slot': app.config['ADSENSE_DETAIL_SLOT'],
     }
 
 def get_trending_shows(limit: int = 6, category: str = 'tv'):

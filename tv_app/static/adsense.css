@@ -1,0 +1,28 @@
+/* Deliberate manual placements. They do not reserve a blank rectangle when
+   AdSense has no inventory, and Auto Ads will not crowd them with a duplicate. */
+.adsense-slot {
+  margin: 20px auto 34px;
+  text-align: center;
+}
+
+.adsense-slot-label {
+  display: block;
+  margin: 0 0 7px;
+  color: var(--muted);
+  font-size: .58rem;
+  font-weight: 750;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+/* Chrome and current Android browsers collapse the entire placement when
+   Google reports it unfilled, including the small label and its margins. */
+.adsense-slot:has(ins.adsbygoogle[data-ad-status="unfilled"]) {
+  display: none;
+}
+
+.adsense-slot.is-unfilled { display: none; }
+
+@media (max-width: 620px) {
+  .adsense-slot { margin-block: 16px 28px; }
+}
