@@ -48,3 +48,54 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Make a time-sensitive channel move clear at the exact point where viewers
+   are looking for a Telegram destination, without competing with download. */
+.telegram-channel-moved {
+  position: relative;
+  width: min(100%, 390px);
+  margin-top: 18px;
+  padding: 12px 15px;
+  border: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
+  border-radius: 14px;
+  background: linear-gradient(110deg, var(--accent-soft), rgba(255, 255, 255, .035));
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 15%, transparent);
+  animation: telegram-channel-pulse 3.8s ease-in-out infinite;
+}
+
+.telegram-channel-moved .telegram-channel-kicker {
+  margin-bottom: 2px;
+  color: var(--accent);
+  font-size: .61rem;
+  font-weight: 850;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.telegram-channel-moved strong {
+  color: var(--text);
+  font-size: .9rem;
+}
+
+.telegram-channel-moved:hover {
+  border-color: var(--accent);
+  background: linear-gradient(110deg, color-mix(in srgb, var(--accent) 19%, transparent), rgba(255, 255, 255, .06));
+  animation-play-state: paused;
+}
+
+@keyframes telegram-channel-pulse {
+  0%, 62%, 100% { box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 15%, transparent); transform: translateY(0); }
+  74% { box-shadow: 0 14px 36px color-mix(in srgb, var(--accent) 32%, transparent); transform: translateY(-2px); }
+}
+
+@media (max-width: 620px) {
+  .telegram-channel-moved {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .telegram-channel-moved {
+    animation: none;
+  }
+}
