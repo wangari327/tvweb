@@ -316,7 +316,10 @@ def update_tv_shows(self):
                 {'type': 'tv', 'v': 'TELEGRAM_CHANNEL_ID', 'k': 'tv_main'},
                 {'type': 'anime', 'v': 'TELEGRAM_ANIME_CHANNEL_ID', 'k': 'anime_main'},
             ]
-            batch_size = max(1, min(int(os.environ.get("TELEGRAM_BATCH_SIZE", "5")), 20))
+            # One post per database transaction is intentionally conservative:
+            # a malformed title or temporary TMDB miss must never roll back
+            # neighbouring channel posts during a large replay.
+            batch_size = max(1, min(int(os.environ.get("TELEGRAM_BATCH_SIZE", "1")), 20))
             posts_by_source, next_offset, has_more = asyncio.run(
                 fetch_new_telegram_posts(sources, batch_size)
             )
