@@ -17,6 +17,7 @@ redirect to the canonical paths configured by `SITE_BASE_URL` and
 | Flask + Gunicorn | Public catalogue, search, sitemaps, detail pages, redirects |
 | Celery worker | Telegram ingestion, metadata enrichment, movie backfills |
 | Celery beat | Scheduled update and leaderboard-reset jobs |
+| Celery watchdog | Restarts a worker that is alive but has stopped consuming ingestion jobs |
 | PostgreSQL | Catalogue, metadata, genres, and ingestion state |
 | Redis | Celery broker/results, application cache, and rolling popularity leaderboard |
 | Nginx (VPS only) | TLS termination, static files, and reverse proxying |
@@ -82,7 +83,7 @@ Run the asynchronous processes in separate terminals after the web server is
 up:
 
 ```bash
-.venv/bin/celery -A tv_app.tasks worker --loglevel=INFO --concurrency=1
+.venv/bin/celery -A tv_app.tasks worker --loglevel=INFO --queues=ingestion,movies,maintenance --concurrency=1 --max-tasks-per-child=100
 .venv/bin/celery -A tv_app.tasks beat --loglevel=INFO
 ```
 
@@ -161,6 +162,12 @@ The release command installs Python dependencies, creates missing database
 objects, switches the `current` symlink atomically, and checks Gunicorn on
 `127.0.0.1:8000` when services already exist. It never calls `FLUSHALL` on
 Redis: Celery uses that Redis instance as its broker.
+
+The systemd installer also enables a five-minute worker watchdog. Celery Beat
+enqueues an ingestion heartbeat every two minutes; if that heartbeat is stale
+for twelve minutes, the watchdog restarts only the worker. This catches the
+otherwise hard-to-see case where a process remains "running" but no longer
+claims queued catalogue updates.
 
 ### 4. Add Nginx and TLS
 
