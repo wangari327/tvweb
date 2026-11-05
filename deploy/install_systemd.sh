@@ -28,7 +28,9 @@ render_unit() {
 render_unit "$SCRIPT_DIR/systemd/ibox-tv-web.service" /etc/systemd/system/ibox-tv-web.service
 render_unit "$SCRIPT_DIR/systemd/ibox-tv-worker.service" /etc/systemd/system/ibox-tv-worker.service
 render_unit "$SCRIPT_DIR/systemd/ibox-tv-beat.service" /etc/systemd/system/ibox-tv-beat.service
+render_unit "$SCRIPT_DIR/systemd/ibox-tv-celery-watchdog.service" /etc/systemd/system/ibox-tv-celery-watchdog.service
+render_unit "$SCRIPT_DIR/systemd/ibox-tv-celery-watchdog.timer" /etc/systemd/system/ibox-tv-celery-watchdog.timer
 
 systemctl daemon-reload
-systemctl enable --now ibox-tv-web.service ibox-tv-worker.service ibox-tv-beat.service
+systemctl enable --now ibox-tv-web.service ibox-tv-worker.service ibox-tv-beat.service ibox-tv-celery-watchdog.timer
 systemctl --no-pager --full status ibox-tv-web.service

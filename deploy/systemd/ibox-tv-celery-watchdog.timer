@@ -1,0 +1,11 @@
+[Unit]
+Description=Check that iBOX TV Celery is still consuming work
+
+[Timer]
+OnBootSec=7min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

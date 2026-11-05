@@ -1,0 +1,12 @@
+[Unit]
+Description=iBOX TV Celery worker watchdog
+After=network-online.target ibox-tv-worker.service
+
+[Service]
+Type=oneshot
+User=root
+Environment=APP_ROOT=__APP_ROOT__
+Environment=VENV=__APP_ROOT__/shared/venv
+Environment=ENV_FILE=__APP_ROOT__/shared/.env
+Environment=CELERY_SERVICE=ibox-tv-worker.service
+ExecStart=__APP_ROOT__/current/deploy/celery_watchdog.sh

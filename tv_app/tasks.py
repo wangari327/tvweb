@@ -7,13 +7,15 @@ import logging
 import itertools
 import hashlib
 import gc
-from typing import Dict, Optional, List, Any
+import time
+from typing import Dict, Optional, List, Any, Tuple
 from urllib.parse import quote_plus
 from datetime import datetime
 from pathlib import Path
 
 import aiohttp
 from celery import Celery
+from celery.exceptions import SoftTimeLimitExceeded
 from dotenv import load_dotenv
 from redis import Redis
 from thefuzz import fuzz, process
@@ -30,6 +32,11 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+# python-telegram-bot uses httpx.  At INFO level httpx logs the full Bot API
+# URL, including the bot token; keep operational logs useful without exposing
+# credentials in the process logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 celery = Celery(__name__)
 try:
@@ -102,29 +109,65 @@ def parse_season_info(line: str) -> Optional[int]:
 #                        TV / ANIME LOGIC (TELEGRAM)
 # ==============================================================================
 
-async def fetch_new_telegram_posts(channel_env_var: str, redis_key_suffix: str) -> list:
+async def fetch_new_telegram_posts(sources: List[Dict[str, str]]) -> Tuple[Dict[str, List[Any]], Optional[int]]:
+    """Fetch both Telegram channels from one Bot API update stream.
+
+    Telegram update IDs are global to a bot, not per channel.  Polling once
+    per channel could acknowledge one channel's updates before the next poll
+    saw them.  A single durable offset avoids silently losing those posts.
+    """
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    channel_id = os.environ.get(channel_env_var)
-    if not channel_id: return []
+    channels = {
+        str(os.environ.get(source["v"])): source["k"]
+        for source in sources
+        if os.environ.get(source["v"])
+    }
+    if not token or not channels:
+        return {}, None
 
     redis_client = Redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
-    last_offset_key = f"last_telegram_update_id:{redis_key_suffix}"
-    last_offset = int(redis_client.get(last_offset_key) or 0)
+    last_offset_key = "last_telegram_update_id"
+    stored_offset = redis_client.get(last_offset_key)
+    if stored_offset:
+        last_offset = int(stored_offset)
+    else:
+        # Preserve the current position when migrating from the previous
+        # per-channel implementation; Telegram does not retain old updates.
+        legacy_offsets = [
+            int(redis_client.get(f"last_telegram_update_id:{source['k']}") or 0)
+            for source in sources
+        ]
+        last_offset = max(legacy_offsets or [0])
 
     from telegram.ext import Application
+    app = None
     try:
         app = Application.builder().token(token).build()
-        updates = await app.bot.get_updates(offset=last_offset + 1, allowed_updates=["channel_post", "edited_channel_post"], timeout=60)
-        if hasattr(app, 'shutdown'): await app.shutdown()
-        
-        posts = [u.channel_post or u.edited_channel_post for u in updates if (u.channel_post or u.edited_channel_post) and str((u.channel_post or u.edited_channel_post).sender_chat.id) == channel_id]
-        if updates: redis_client.set(last_offset_key, updates[-1].update_id)
-        
-        if posts: logger.info(f"[{channel_env_var}] Found {len(posts)} new posts.")
-        return posts
-    except Exception as e:
-        logger.exception(f"Error fetching Telegram posts for {channel_env_var}: {e}")
-        return []
+        poll_timeout = max(1, min(int(os.environ.get("TELEGRAM_POLL_TIMEOUT", "10")), 30))
+        updates = await app.bot.get_updates(
+            offset=last_offset + 1,
+            allowed_updates=["channel_post", "edited_channel_post"],
+            timeout=poll_timeout,
+        )
+        posts_by_source: Dict[str, List[Any]] = {source["k"]: [] for source in sources}
+        for update in updates:
+            post = update.channel_post or update.edited_channel_post
+            if not post:
+                continue
+            source_key = channels.get(str(post.sender_chat.id))
+            if source_key:
+                posts_by_source[source_key].append(post)
+
+        for source_key, posts in posts_by_source.items():
+            if posts:
+                logger.info("[%s] Found %d new Telegram posts.", source_key, len(posts))
+        return posts_by_source, (updates[-1].update_id if updates else None)
+    except Exception:
+        logger.exception("Error fetching Telegram posts.")
+        raise
+    finally:
+        if app and hasattr(app, 'shutdown'):
+            await app.shutdown()
 
 def parse_telegram_post(post) -> Optional[Dict]:
     try:
@@ -241,20 +284,36 @@ async def fetch_tmdb_tv_data(show_name: str, search_year: int, search_season: in
             "details": full_details,
         }
 
-@celery.task(bind=True, retry_backoff=True, max_retries=3)
+@celery.task(
+    bind=True,
+    name="tv_app.tasks.update_tv_shows",
+    retry_backoff=True,
+    retry_jitter=True,
+    max_retries=3,
+    soft_time_limit=300,
+    time_limit=360,
+)
 def update_tv_shows(self):
     redis_client = Redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
-    lock = redis_client.lock("update_tv_shows_lock", timeout=540)
+    lock = redis_client.lock("update_tv_shows_lock", timeout=420)
     if not lock.acquire(blocking=False): return
 
     from tv_app.app import app
+    db = None
     with app.app_context():
         try:
             from tv_app.models import db, TVShow
             logger.info("update_tv_shows: Started processing...")
-            
-            for src in [{'type':'tv','v':'TELEGRAM_CHANNEL_ID','k':'tv_main'}, {'type':'anime','v':'TELEGRAM_ANIME_CHANNEL_ID','k':'anime_main'}]:
-                posts = asyncio.run(fetch_new_telegram_posts(src['v'], src['k']))
+
+            sources = [
+                {'type': 'tv', 'v': 'TELEGRAM_CHANNEL_ID', 'k': 'tv_main'},
+                {'type': 'anime', 'v': 'TELEGRAM_ANIME_CHANNEL_ID', 'k': 'anime_main'},
+            ]
+            posts_by_source, next_offset = asyncio.run(fetch_new_telegram_posts(sources))
+            processed_keys = []
+
+            for src in sources:
+                posts = posts_by_source.get(src['k'], [])
                 for post in posts:
                     processed_key = f"processed_messages:{src['k']}:{post.message_id}"
                     if redis_client.exists(processed_key):
@@ -317,15 +376,38 @@ def update_tv_shows(self):
                         apply_enrichment(new_show, tmdb["details"])
                         logger.info(f"✅ Added: {tmdb['show_name_from_tmdb']}")
                     
-                    redis_client.set(processed_key, 1, ex=86400)
+                    processed_keys.append(processed_key)
             
             db.session.commit()
+            for processed_key in processed_keys:
+                redis_client.set(processed_key, 1, ex=86400)
+            if next_offset is not None:
+                redis_client.set("last_telegram_update_id", next_offset)
+                # Keep legacy keys current so a rollback does not poll from
+                # the beginning of Telegram's update stream.
+                for src in sources:
+                    redis_client.set(f"last_telegram_update_id:{src['k']}", next_offset)
             logger.info("update_tv_shows: Batch Committed.")
-        except Exception as e:
-            logger.error(f"Error in update_tv_shows: {e}")
-            db.session.rollback()
+        except SoftTimeLimitExceeded as exc:
+            logger.warning("update_tv_shows reached its time limit; retrying safely.")
+            if db is not None:
+                db.session.rollback()
+            raise self.retry(exc=exc, countdown=120)
+        except Exception as exc:
+            logger.exception("Error in update_tv_shows; retrying without advancing the Telegram offset.")
+            if db is not None:
+                db.session.rollback()
+            raise self.retry(exc=exc, countdown=120)
         finally:
             if lock.locked(): lock.release()
+
+
+@celery.task(name="tv_app.tasks.worker_heartbeat")
+def worker_heartbeat():
+    """Record a short-lived proof that the ingestion worker is consuming jobs."""
+    redis_client = Redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
+    redis_client.set("celery:heartbeat:ingestion", str(int(time.time())), ex=900)
+    return True
 
 @celery.task(name="tv_app.tasks.reset_clicks")
 def reset_clicks():

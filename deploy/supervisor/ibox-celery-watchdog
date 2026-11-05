@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Supervisor-compatible wrapper for the shared watchdog.  Its caller runs
+# every five minutes from root's crontab on legacy VPS installations.
+
+set -Eeuo pipefail
+
+APP_DIR="/root/tvweb-current"
+VENV="/root/tvweb/venv"
+ENV_FILE="/root/tvweb/.env"
+STALE_SECONDS="${CELERY_WATCHDOG_STALE_SECONDS:-720}"
+
+set +u
+set -a
+source "$ENV_FILE"
+set +a
+set -u
+
+set +e
+"$VENV/bin/python" - "$STALE_SECONDS" <<'PY'
+import os
+import sys
+import time
+
+from redis import Redis
+
+try:
+    heartbeat = Redis.from_url(
+        os.environ["REDIS_URL"], decode_responses=True, socket_connect_timeout=5
+    ).get("celery:heartbeat:ingestion")
+    stale = not heartbeat or time.time() - int(heartbeat) > int(sys.argv[1])
+    raise SystemExit(2 if stale else 0)
+except (KeyError, ValueError):
+    raise SystemExit(1)
+except Exception as exc:
+    print(f"Could not check iBOX TV Celery heartbeat: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+heartbeat_status=$?
+set -e
+
+if [[ "$heartbeat_status" -eq 2 ]]; then
+    supervisorctl restart ibox-celery-worker
+elif [[ "$heartbeat_status" -ne 0 ]]; then
+    exit "$heartbeat_status"
+fi
