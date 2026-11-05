@@ -1,0 +1,3 @@
+# Keep legacy Supervisor-based VPS installs self-healing.  New deployments use
+# the systemd timer installed by deploy/install_systemd.sh instead.
+*/5 * * * * root /usr/local/sbin/ibox-celery-watchdog >> /var/log/ibox-celery-watchdog.log 2>&1
