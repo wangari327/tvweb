@@ -109,7 +109,9 @@ def parse_season_info(line: str) -> Optional[int]:
 #                        TV / ANIME LOGIC (TELEGRAM)
 # ==============================================================================
 
-async def fetch_new_telegram_posts(sources: List[Dict[str, str]]) -> Tuple[Dict[str, List[Any]], Optional[int]]:
+async def fetch_new_telegram_posts(
+    sources: List[Dict[str, str]], batch_size: int
+) -> Tuple[Dict[str, List[Any]], Optional[int], bool]:
     """Fetch both Telegram channels from one Bot API update stream.
 
     Telegram update IDs are global to a bot, not per channel.  Polling once
@@ -123,7 +125,7 @@ async def fetch_new_telegram_posts(sources: List[Dict[str, str]]) -> Tuple[Dict[
         if os.environ.get(source["v"])
     }
     if not token or not channels:
-        return {}, None
+        return {}, None, False
 
     redis_client = Redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
     last_offset_key = "last_telegram_update_id"
@@ -147,6 +149,7 @@ async def fetch_new_telegram_posts(sources: List[Dict[str, str]]) -> Tuple[Dict[
         updates = await app.bot.get_updates(
             offset=last_offset + 1,
             allowed_updates=["channel_post", "edited_channel_post"],
+            limit=batch_size,
             timeout=poll_timeout,
         )
         posts_by_source: Dict[str, List[Any]] = {source["k"]: [] for source in sources}
@@ -161,7 +164,11 @@ async def fetch_new_telegram_posts(sources: List[Dict[str, str]]) -> Tuple[Dict[
         for source_key, posts in posts_by_source.items():
             if posts:
                 logger.info("[%s] Found %d new Telegram posts.", source_key, len(posts))
-        return posts_by_source, (updates[-1].update_id if updates else None)
+        return (
+            posts_by_source,
+            (updates[-1].update_id if updates else None),
+            len(updates) >= batch_size,
+        )
     except Exception:
         logger.exception("Error fetching Telegram posts.")
         raise
@@ -309,7 +316,10 @@ def update_tv_shows(self):
                 {'type': 'tv', 'v': 'TELEGRAM_CHANNEL_ID', 'k': 'tv_main'},
                 {'type': 'anime', 'v': 'TELEGRAM_ANIME_CHANNEL_ID', 'k': 'anime_main'},
             ]
-            posts_by_source, next_offset = asyncio.run(fetch_new_telegram_posts(sources))
+            batch_size = max(1, min(int(os.environ.get("TELEGRAM_BATCH_SIZE", "5")), 20))
+            posts_by_source, next_offset, has_more = asyncio.run(
+                fetch_new_telegram_posts(sources, batch_size)
+            )
             processed_keys = []
 
             for src in sources:
@@ -405,6 +415,9 @@ def update_tv_shows(self):
                 # the beginning of Telegram's update stream.
                 for src in sources:
                     redis_client.set(f"last_telegram_update_id:{src['k']}", next_offset)
+            if has_more:
+                logger.info("Telegram backlog remains; queuing the next batch of %d updates.", batch_size)
+                self.apply_async(countdown=1)
             logger.info("update_tv_shows: Batch Committed.")
         except SoftTimeLimitExceeded as exc:
             logger.warning("update_tv_shows reached its time limit; retrying safely.")
