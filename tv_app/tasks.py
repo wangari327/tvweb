@@ -326,7 +326,25 @@ def update_tv_shows(self):
                         continue
 
                     tmdb = asyncio.run(fetch_tmdb_tv_data(p["show_name_for_search"], p["search_year"], p["search_season"]))
-                    if not tmdb: continue
+                    if not tmdb:
+                        # Do not advance the global Telegram offset because
+                        # TMDB had a transient failure.  After three attempts
+                        # we record the skip and continue, so one malformed
+                        # title cannot stop later channel posts forever.
+                        failure_key = f"ingestion_failures:{src['k']}:{post.message_id}"
+                        failures = redis_client.incr(failure_key)
+                        redis_client.expire(failure_key, 7 * 86400)
+                        if failures < 3:
+                            raise RuntimeError(
+                                f"TMDB lookup failed for {p['show_name_for_search']} (attempt {failures}/3)."
+                            )
+                        logger.warning(
+                            "Skipping %s after three failed TMDB lookups (message %s).",
+                            p['show_name_for_search'],
+                            post.message_id,
+                        )
+                        redis_client.delete(failure_key)
+                        continue
 
                     c_hash = f"{tmdb['tmdb_id']}-{p['season_episode_from_post']}"
                     
