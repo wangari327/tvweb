@@ -836,7 +836,11 @@ def backfill_movies_task(self):
         redis_client.hset("backfill:status", "state", "Idle")
         logger.info("🛑 Backfill Task Finished")
 
-@celery.task(name="tv_app.tasks.sync_movies")
+@celery.task(
+    name="tv_app.tasks.sync_movies",
+    soft_time_limit=600,
+    time_limit=660,
+)
 def sync_movies():
     """Restored Sync Functionality"""
     redis_client = Redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
